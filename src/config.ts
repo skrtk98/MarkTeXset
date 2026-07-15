@@ -1,0 +1,276 @@
+import fs from "node:fs";
+import path from "node:path";
+import { parseDocument } from "yaml";
+import { Diagnostics, locationFor } from "./diagnostics.js";
+
+export type Config = Record<string, any>;
+
+const DEFAULT_CONFIG: Config = {
+  meta: { language: "en", timezone: "UTC" },
+  bibliography: [],
+  citation: { style: "numeric", heading: { text: "References", level: 2 } },
+  layout: {
+    class: "article",
+    size: "A4",
+    margins: "25mm",
+    paginate: true,
+    page: {
+      number: { visible: true, position: "bottom-center", format: "{page.arabic}" },
+      style: "plain",
+    },
+    title: { dateFormat: "yyyy-mm-dd" },
+    heading: {
+      numbered: true,
+      numberingDepth: 3,
+      tocDepth: 3,
+      formats: {
+        h1: "{h1.arabic}.",
+        h2: "{h1.arabic}.{h2.arabic}.",
+        h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
+      },
+    },
+    counter: { maxDepth: 3 },
+    footnote: { format: "{footnote.arabic}", placement: "bottom" },
+    equation: { numbered: false, display: "({equation.arabic})", reference: "式 ({equation.arabic})" },
+    callouts: {},
+  },
+  command: { macros: {}, operators: {} },
+  network: { allow: false, domains: [] },
+};
+
+const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "network"]);
+const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "network"]);
+const NUMBER_FORMATS = new Set(["arabic", "roman", "Roman", "alph", "Alph"]);
+const CALLOUT_STYLES = new Set(["plain", "definition", "remark", "proof"]);
+const OPERATOR_FONTS = new Set(["mathrm", "mathcal", "mathbb"]);
+const BUILTIN_COMMANDS = new Set(["frac", "sqrt", "sum", "prod", "int", "lim", "sin", "cos", "log", "exp", "text", "operatorname"]);
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function merge(base: Record<string, any>, next: Record<string, any>): Record<string, any> {
+  const result = clone(base);
+  for (const [key, value] of Object.entries(next)) {
+    if ((key === "bibliography" || key === "domains") && Array.isArray(result[key]) && Array.isArray(value)) {
+      result[key] = [...result[key], ...value];
+    } else if (isRecord(result[key]) && isRecord(value)) {
+      result[key] = merge(result[key], value);
+    } else {
+      result[key] = clone(value);
+    }
+  }
+  return result;
+}
+
+function addUnknownKeyDiagnostics(value: Record<string, any>, allowed: Set<string>, file: string, source: string, diagnostics: Diagnostics): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + key + "'.", locationFor(source, file, 0));
+  }
+}
+
+function parseYaml(source: string, file: string, diagnostics: Diagnostics): Record<string, any> {
+  const document = parseDocument(source, { uniqueKeys: true });
+  for (const error of document.errors) diagnostics.error("YAML_PARSE", error.message, locationFor(source, file, 0));
+  const value = document.toJS({ mapAsMap: false });
+  if (!isRecord(value)) {
+    diagnostics.error("YAML_ROOT", "Configuration must be a mapping.", locationFor(source, file, 0));
+    return {};
+  }
+  return value;
+}
+
+function validateValueShape(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics, root: boolean): void {
+  addUnknownKeyDiagnostics(value, root ? ROOT_KEYS : IMPORT_KEYS, file, source, diagnostics);
+  if (value.layout?.class !== undefined && value.layout.class !== "article") {
+    diagnostics.error("UNSUPPORTED_CLASS", "Only the article class is supported in phase 1.", locationFor(source, file, 0));
+  }
+  if (value.layout?.size !== undefined && value.layout.size !== "A4") {
+    diagnostics.error("UNSUPPORTED_PAGE_SIZE", "Only A4 is supported in phase 1.", locationFor(source, file, 0));
+  }
+  const language = value.meta?.language;
+  if (language !== undefined && language !== "en" && language !== "ja") {
+    diagnostics.error("UNSUPPORTED_LANGUAGE", "Only en and ja are supported in phase 1.", locationFor(source, file, 0));
+  }
+  if (value.citation?.style !== undefined && value.citation.style !== "numeric") {
+    diagnostics.error("UNSUPPORTED_CITATION_STYLE", "Only numeric citation style is supported in phase 1.", locationFor(source, file, 0));
+  }
+  if (value.network?.allow !== undefined && !root) {
+    diagnostics.error("IMPORT_NETWORK_ALLOW", "network.allow may only be set in the root Frontmatter.", locationFor(source, file, 0));
+  }
+  if (root && value.network?.allow === true && (!Array.isArray(value.network.domains) || value.network.domains.length === 0)) {
+    diagnostics.error("EMPTY_NETWORK_ALLOWLIST", "network.allow requires a non-empty domains list.", locationFor(source, file, 0));
+  }
+  validateMargins(value.layout?.margins, file, source, diagnostics);
+  validateLayout(value.layout, file, source, diagnostics);
+  validateCommands(value.command, file, source, diagnostics);
+}
+
+function validateMargins(value: unknown, file: string, source: string, diagnostics: Diagnostics): void {
+  if (value === undefined) return;
+  const values = isRecord(value) ? Object.values(value) : [value];
+  for (const item of values) {
+    if (typeof item !== "string" || !/^(?:0|[0-9]+(?:\\.[0-9]+)?(?:mm|cm|in|pt))$/.test(item)) {
+      diagnostics.error("INVALID_MARGIN", "Margins must be non-negative mm, cm, in, or pt lengths.", locationFor(source, file, 0));
+    }
+  }
+}
+
+function validateLayout(layout: Record<string, any> | undefined, file: string, source: string, diagnostics: Diagnostics): void {
+  if (!isRecord(layout)) return;
+  const depthValues = [layout.heading?.numberingDepth, layout.heading?.tocDepth, layout.counter?.maxDepth];
+  for (const depth of depthValues) {
+    if (depth !== undefined && (!Number.isInteger(depth) || depth < 0)) {
+      diagnostics.error("INVALID_DEPTH", "Counter and heading depths must be non-negative integers.", locationFor(source, file, 0));
+    }
+  }
+  const position = layout.page?.number?.position;
+  if (position !== undefined && position !== "bottom-center") {
+    diagnostics.error("UNSUPPORTED_PAGE_POSITION", "Only bottom-center is supported in phase 1.", locationFor(source, file, 0));
+  }
+  for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
+    if (!isRecord(definition)) continue;
+    if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style))) {
+      diagnostics.warning("UNKNOWN_CALLOUT_STYLE", "Unknown callout style '" + definition.style + "', falling back to plain.", locationFor(source, file, 0));
+    }
+    if (typeof definition.title === "string") validateTitle(definition.title, file, source, diagnostics);
+    if (name.length === 0) diagnostics.error("INVALID_CALLOUT_NAME", "Callout names must not be empty.", locationFor(source, file, 0));
+  }
+}
+
+function validateTitle(title: string, file: string, source: string, diagnostics: Diagnostics): void {
+  const unescaped = title.replace(/\{\{/g, "").replace(/\}\}/g, "");
+  const pattern = /\{([^}]+)\}/g;
+  for (const match of unescaped.matchAll(pattern)) {
+    const parts = match[1].split(">").map((part) => part.trim());
+    if (parts.length > 3) diagnostics.error("COUNTER_DEPTH_EXCEEDED", "Counter scope exceeds layout.counter.max-depth.", locationFor(source, file, 0));
+    const leaf = parts.at(-1) ?? "";
+    const pair = leaf.split(".");
+    if (pair.length !== 2 || !NUMBER_FORMATS.has(pair[1])) {
+      diagnostics.error("INVALID_COUNTER_TEMPLATE", "Invalid counter placeholder '" + match[1] + "'.", locationFor(source, file, 0));
+    }
+  }
+}
+
+function validateCommands(command: Record<string, any> | undefined, file: string, source: string, diagnostics: Diagnostics): void {
+  if (!isRecord(command)) return;
+  const macros = command.macros ?? {};
+  const operators = command.operators ?? {};
+  if (!isRecord(macros) || !isRecord(operators)) return;
+  for (const [name, definition] of Object.entries(macros)) {
+    if (!isRecord(definition)) {
+      diagnostics.error("INVALID_MACRO", "Macro '" + name + "' must be a mapping.", locationFor(source, file, 0));
+      continue;
+    }
+    if (!Number.isInteger(definition.args) || definition.args < 0 || definition.args > 4) {
+      diagnostics.error("INVALID_MACRO_ARGS", "Macro '" + name + "' args must be an integer from 0 to 4.", locationFor(source, file, 0));
+    }
+    if (definition.redef === true && !BUILTIN_COMMANDS.has(name)) {
+      diagnostics.error("INVALID_REDEF", "redef is only valid for an existing built-in command '" + name + "'.", locationFor(source, file, 0));
+    }
+  }
+  for (const [name, definition] of Object.entries(operators)) {
+    if (!isRecord(definition)) {
+      diagnostics.error("INVALID_OPERATOR", "Operator '" + name + "' must be a mapping.", locationFor(source, file, 0));
+      continue;
+    }
+    if (definition.font !== undefined && !OPERATOR_FONTS.has(String(definition.font))) {
+      diagnostics.error("INVALID_OPERATOR_FONT", "Unsupported operator font '" + definition.font + "'.", locationFor(source, file, 0));
+    }
+    if (definition.redef === true && !BUILTIN_COMMANDS.has(name)) {
+      diagnostics.error("INVALID_REDEF", "redef is only valid for an existing built-in command '" + name + "'.", locationFor(source, file, 0));
+    }
+  }
+  for (const name of Object.keys(macros)) {
+    if (Object.prototype.hasOwnProperty.call(operators, name)) diagnostics.error("COMMAND_NAME_COLLISION", "Macro and operator '" + name + "' share one command namespace.", locationFor(source, file, 0));
+  }
+}
+
+function parseFrontmatter(source: string, file: string, diagnostics: Diagnostics): { settings: Record<string, any>; body: string } {
+  if (!/^---\r?\n/.test(source)) return { settings: {}, body: source };
+  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) {
+    diagnostics.error("FRONTMATTER", "Frontmatter must be closed by a second --- delimiter.", locationFor(source, file, 0));
+    return { settings: {}, body: source };
+  }
+  const root = parseYaml(match[1], file, diagnostics);
+  if (!isRecord(root.mathmd)) {
+    diagnostics.error("ROOT_CONFIG", "Frontmatter must contain a mathmd mapping.", locationFor(source, file, 0));
+    return { settings: {}, body: source.slice(match[0].length) };
+  }
+  validateValueShape(root.mathmd, file, match[1], diagnostics, true);
+  return { settings: root.mathmd, body: source.slice(match[0].length) };
+}
+
+function readImport(importPath: string, rootFile: string, visited: Set<string>, diagnostics: Diagnostics): Record<string, any> {
+  if (!path.isAbsolute(importPath) && importPath.split(/[\\\\/]/).includes("..")) {
+    diagnostics.error("IMPORT_PARENT_PATH", "Parent directory imports are not allowed.");
+    return {};
+  }
+  const resolved = path.isAbsolute(importPath) ? importPath : path.resolve(path.dirname(rootFile), importPath);
+  const canonical = path.resolve(resolved);
+  if (visited.has(canonical)) {
+    diagnostics.warning("DUPLICATE_IMPORT", "Import '" + importPath + "' was already processed.");
+    return {};
+  }
+  visited.add(canonical);
+  if (!fs.existsSync(canonical)) {
+    diagnostics.error("IMPORT_NOT_FOUND", "Import file '" + importPath + "' does not exist.");
+    return {};
+  }
+  const source = fs.readFileSync(canonical, "utf8");
+  const value = parseYaml(source, canonical, diagnostics);
+  if (Object.prototype.hasOwnProperty.call(value, "mathmd") || Object.prototype.hasOwnProperty.call(value, "import")) {
+    diagnostics.error("INVALID_IMPORT_SHAPE", "Import files contain mathmd settings directly and cannot import other files.", locationFor(source, canonical, 0));
+  }
+  validateValueShape(value, canonical, source, diagnostics, false);
+  return value;
+}
+
+function mergeImported(base: Record<string, any>, next: Record<string, any>, importedMacroNames: Set<string>, importedOperatorNames: Set<string>, diagnostics: Diagnostics): Record<string, any> {
+  for (const name of Object.keys(next.command?.macros ?? {})) {
+    if (importedMacroNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Imported macro '" + name + "' is defined more than once.");
+    importedMacroNames.add(name);
+  }
+  for (const name of Object.keys(next.command?.operators ?? {})) {
+    if (importedOperatorNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Imported operator '" + name + "' is defined more than once.");
+    importedOperatorNames.add(name);
+  }
+  return merge(base, next);
+}
+
+export function loadConfig(source: string, file: string, diagnostics: Diagnostics): { config: Config; body: string } {
+  const frontmatter = parseFrontmatter(source, file, diagnostics);
+  const root = frontmatter.settings;
+  const visited = new Set<string>();
+  const importedMacroNames = new Set<string>();
+  const importedOperatorNames = new Set<string>();
+  let settings: Record<string, any> = {};
+  for (const importPath of root.import ?? []) {
+    if (typeof importPath !== "string") diagnostics.error("INVALID_IMPORT", "Import paths must be strings.");
+    else settings = mergeImported(settings, readImport(importPath, file, visited, diagnostics), importedMacroNames, importedOperatorNames, diagnostics);
+  }
+  const local = { ...root };
+  delete local.import;
+  settings = merge(settings, local);
+  const config = merge(DEFAULT_CONFIG, settings);
+  normalizeConfig(config);
+  return { config, body: frontmatter.body };
+}
+
+function normalizeConfig(config: Config): void {
+  const heading = config.layout.heading;
+  heading.numberingDepth = heading.numberingDepth ?? heading["numbering-depth"] ?? 3;
+  heading.tocDepth = heading.tocDepth ?? heading["toc-depth"] ?? 3;
+  heading.formats = {
+    h1: heading.h1 ?? "{h1.arabic}.",
+    h2: heading.h2 ?? "{h1.arabic}.{h2.arabic}.",
+    h3: heading.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
+  };
+  config.layout.title.dateFormat = config.layout.title.dateFormat ?? config.layout.title["date-format"] ?? "yyyy-mm-dd";
+  config.layout.counter.maxDepth = config.layout.counter.maxDepth ?? config.layout.counter["max-depth"] ?? 3;
+}
