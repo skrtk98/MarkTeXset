@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { compileFile } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
+import { startPreview } from "./preview.js";
 
 function usage(message?: string): never {
   if (message) console.error("CLI error: " + message);
@@ -71,12 +72,27 @@ function init(args: string[]): void {
   console.error("Created " + output);
 }
 
+function preview(args: string[]): void {
+  if (!args.length) usage("preview requires an input Markdown file.");
+  const input = requireMarkdownInput(args[0]);
+  let port = 3000;
+  let host = "127.0.0.1";
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "-p" || args[i] === "--port") port = Number(args[++i]);
+    else if (args[i] === "--host") host = args[++i] ?? usage("Missing host.");
+    else usage("Unknown option '" + args[i] + "'.");
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) usage("Port must be an integer from 1 to 65535.");
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") console.error("Warning: preview is accessible from clients that can reach " + host + ".");
+  startPreview({ input, port, host }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
+}
+
 export function main(argv = process.argv.slice(2)): void {
   if (!argv.length || argv[0] === "-h" || argv[0] === "--help") usage();
   const command = argv[0];
   if (command === "build") build(argv.slice(1));
   else if (command === "init") init(argv.slice(1));
-  else if (command === "preview") usage("preview server is planned for the phase-one extension.");
+  else if (command === "preview") preview(argv.slice(1));
   else usage("Unknown command '" + command + "'.");
 }
 

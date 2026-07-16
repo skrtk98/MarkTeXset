@@ -23,7 +23,7 @@ function counterText(template: string, name: string, value: number): string {
   });
 }
 
-function renderCallout(name: string, body: string, config: Config, counters: Map<string, number>): string {
+function renderCallout(name: string, body: string, config: Config, counters: Map<string, number>, id: string | undefined, classes: string[], ids: Set<string>, references: Map<string, string>, diagnostics: Diagnostics): string {
   const definitions = config.layout.callouts ?? {};
   const definition = definitions[name] ?? { title: name, style: "plain" };
   const style = ["plain", "definition", "remark", "proof"].includes(definition.style) ? definition.style : "plain";
@@ -35,13 +35,19 @@ function renderCallout(name: string, body: string, config: Config, counters: Map
     counters.set(name, current);
     renderedTitle = counterText(title, name, current);
   }
+  if (id) {
+    if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
+    ids.add(id);
+    references.set(id, renderedTitle);
+  }
   const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
   const content = md.render(body.trim() + "\n");
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
-  return "<div class=\"callout callout-" + escapeHtml(style) + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
+  const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
+  return "<div" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"" + classAttribute + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
-function protectMath(source: string, config: Config, diagnostics: Diagnostics): { text: string; values: Map<string, string> } {
+function protectMath(source: string, config: Config, diagnostics: Diagnostics, ids: Set<string>, references: Map<string, string>): { text: string; values: Map<string, string> } {
   const values = new Map<string, string>();
   let index = 0;
   const put = (html: string): string => {
@@ -58,7 +64,13 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics): 
         const notag = /\\notag\b/.test(body);
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
-        const number = numbered && !notag ? " <span class=\"equation-number\">(" + (++equation) + ")</span>" : "";
+        const numberValue = numbered && !notag ? ++equation : 0;
+        const number = numberValue ? " <span class=\"equation-number\">(" + numberValue + ")</span>" : "";
+        if (label) {
+          if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
+          ids.add(label);
+          references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
+        }
         return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + row.html + number + "</div>";
       }).join("");
       return put("<div class=\"math-block\">" + rendered + "</div>");
@@ -74,13 +86,15 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics): 
   return { text, values };
 }
 
-function preprocess(source: string, config: Config, diagnostics: Diagnostics): { text: string; replacements: Map<string, string> } {
+function preprocess(source: string, config: Config, diagnostics: Diagnostics): { text: string; replacements: Map<string, string>; ids: Set<string>; references: Map<string, string> } {
   const replacements = new Map<string, string>();
   let sequence = 0;
   const token = (html: string): string => { const value = "MATHMDTOKEN" + sequence++ + "END"; replacements.set(value, html); return value; };
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const output: string[] = [];
   const counters = new Map<string, number>();
+  const ids = new Set<string>();
+  const references = new Map<string, string>();
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const callout = line.match(/^>\s*\[!([^\]]+)\](?:\s+(.*))?$/);
@@ -90,7 +104,12 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       while (j < lines.length && (/^>/.test(lines[j]) || lines[j].trim() === "")) {
         body.push(lines[j].replace(/^>\s?/, "")); j++;
       }
-      output.push(token(renderCallout(callout[1].trim(), [callout[2] ?? "", ...body].join("\n"), config, counters)));
+      let calloutTitle = callout[2] ?? "";
+      const calloutAttributes = calloutTitle.match(/\s+\{([^}]*)\}\s*$/);
+      const calloutId = calloutAttributes?.[1].match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1];
+      const calloutClasses = [...(calloutAttributes?.[1].matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g) ?? [])].map((match) => match[1]);
+      if (calloutAttributes) calloutTitle = calloutTitle.slice(0, calloutAttributes.index).trim();
+      output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, counters, calloutId, calloutClasses, ids, references, diagnostics)));
       i = j - 1;
       continue;
     }
@@ -105,11 +124,29 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       output.push(token("<div class=\"mathmd-directive mathmd-pagestyle\" data-name=\"" + escapeHtml(style) + "\"></div>"));
       continue;
     }
+    const heading = line.match(/^(#{1,6})(:)\s+(.+?)(?:\s+\{([^}]*)\})?$/);
+    if (heading) {
+      const attrs = heading[4] ?? "";
+      const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
+      const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
+      if (id) { if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); ids.add(id); references.set(id, heading[3]); }
+      output.push(heading[1] + " MATHMDNONUM MATHMDATTR:" + id + ":" + classes + ":" + heading[3]);
+      continue;
+    }
+    const ordinaryHeading = line.match(/^(#{1,6})\s+(.+?)\s+\{([^}]*)\}\s*$/);
+    if (ordinaryHeading) {
+      const attrs = ordinaryHeading[3];
+      const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
+      const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
+      if (id) { if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); ids.add(id); references.set(id, ordinaryHeading[2]); }
+      output.push(ordinaryHeading[1] + " MATHMDATTR:" + id + ":" + classes + ":" + ordinaryHeading[2]);
+      continue;
+    }
     output.push(line);
   }
-  const protectedMath = protectMath(output.join("\n"), config, diagnostics);
+  const protectedMath = protectMath(output.join("\n"), config, diagnostics, ids, references);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
-  return { text: protectedMath.text, replacements };
+  return { text: protectedMath.text, replacements, ids, references };
 }
 
 function addHeadingNumbers(html: string, config: Config): string {
@@ -119,13 +156,22 @@ function addHeadingNumbers(html: string, config: Config): string {
   return html.replace(/<h([1-6])>([\s\S]*?)<\/h\1>/g, (_m, levelText: string, content: string) => {
     const level = Number(levelText);
     const marker = "MATHMDNONUM ";
-    if (content.startsWith(marker)) return "<h" + level + ">" + content.slice(marker.length) + "</h" + level + ">";
-    if (!config.layout.heading.numbered || level > depth) return "<h" + level + ">" + content + "</h" + level + ">";
+    let id = "";
+    let classes = "";
+    const unnumbered = content.startsWith("MATHMDNONUM ");
+    if (unnumbered) content = content.slice("MATHMDNONUM ".length);
+    if (content.startsWith("MATHMDATTR:")) {
+      const attribute = content.match(/^MATHMDATTR:([^:]*):([^:]*):(.*)$/s);
+      if (attribute) { id = attribute[1]; classes = attribute[2].replace(/\./g, " "); content = attribute[3]; }
+    }
+    if (content.startsWith(marker)) content = content.slice(marker.length);
+    const attrs = (id ? " id=\"" + escapeHtml(id) + "\"" : "") + (classes ? " class=\"" + escapeHtml(classes) + "\"" : "");
+    if (unnumbered || !config.layout.heading.numbered || level > depth) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
     counters[level]++;
     for (let i = level + 1; i <= 6; i++) counters[i] = 0;
     const format = String(formats["h" + level] ?? "");
     const number = format.replace(/\{h([1-6])\.arabic\}/g, (_x: string, n: string) => String(counters[Number(n)] || 0));
-    return "<h" + level + ">" + escapeHtml(number) + " " + content + "</h" + level + ">";
+    return "<h" + level + attrs + ">" + escapeHtml(number) + " " + content + "</h" + level + ">";
   });
 }
 
@@ -165,14 +211,56 @@ function bibliography(config: Config, body: string, diagnostics: Diagnostics, fi
   return "<h" + heading.level + ">" + escapeHtml(heading.text) + "</h" + heading.level + "><ol class=\"references\">" + html + "</ol>";
 }
 
+function renderTitle(config: Config): string {
+  const meta = config.meta ?? {};
+  if (!meta.title) return "";
+  const authors = Array.isArray(meta.author) ? meta.author : meta.author ? [meta.author] : [];
+  const authorHtml = authors.map((author: any) => {
+    const value = typeof author === "string" ? { name: author } : author;
+    const name = escapeHtml(String(value.name ?? value));
+    const link = value.url ? " <a href=\"" + escapeHtml(String(value.url)) + "\">" + escapeHtml(String(value.url)) + "</a>" : "";
+    const affiliation = value.affiliation ? " <span class=\"affiliation\">" + escapeHtml(String(value.affiliation)) + "</span>" : "";
+    return "<div class=\"author\">" + name + affiliation + link + "</div>";
+  }).join("");
+  const date = meta.date ? "<div class=\"date\">" + escapeHtml(String(meta.date)) + "</div>" : "";
+  return "<header class=\"document-title\"><h1>" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
+}
+
+function renderToc(html: string): string {
+  const items = [...html.matchAll(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g)].map((match) => {
+    const id = match[2].match(/\sid=\"([^\"]+)\"/)?.[1];
+    return id ? "<li class=\"toc-level-" + match[1] + "\"><a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a></li>" : "";
+  }).filter(Boolean).join("");
+  return "<nav class=\"table-of-contents\"><ol>" + items + "</ol></nav>";
+}
+
+function resolveReferences(html: string, references: Map<string, string>, diagnostics: Diagnostics): string {
+  return html.replace(/<a href=\"#([^\"]+)\">([\s\S]*?)<\/a>/g, (_match, id: string, text: string) => {
+    if (!references.has(id)) {
+      diagnostics.warning("UNRESOLVED_REFERENCE", "Reference '#" + id + "' could not be resolved.");
+      return "<b class=\"diagnostic-missing\">" + (text || "#" + escapeHtml(id)) + "</b>";
+    }
+    return text ? "<a href=\"#" + escapeHtml(id) + "\">" + text + "</a>" : "<a href=\"#" + escapeHtml(id) + "\">" + escapeHtml(references.get(id) ?? id) + "</a>";
+  });
+}
+
 export function compile(source: string, file = "document.md"): CompileResult {
   const diagnostics = new Diagnostics();
   const loaded = loadConfig(source, file, diagnostics);
   const prepared = preprocess(loaded.body, loaded.config, diagnostics);
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote);
-  let html = addHeadingNumbers(md.render(prepared.text.replace(/^(#{1,6}):\s+/gm, "$1 MATHMDNONUM ")), loaded.config);
+  let html = addHeadingNumbers(md.render(prepared.text), loaded.config);
   for (const [key, value] of prepared.replacements) html = html.split("<p>" + key + "</p>").join(value).split(key).join(value);
+  const tocCount = (loaded.body.match(/<maketoc\s*\/>/g) ?? []).length;
+  const referencesCount = (loaded.body.match(/<references\s*\/>/g) ?? []).length;
+  if (tocCount > 1) diagnostics.warning("DUPLICATE_TOC", "Only the first <maketoc /> is used.");
+  if (referencesCount > 1) diagnostics.warning("DUPLICATE_REFERENCES", "Only the first <references /> is used.");
+  if (/<maketitle\s*\/>/.test(loaded.body)) {
+    if (!loaded.config.meta?.title) diagnostics.warning("MISSING_TITLE", "<maketitle /> requires meta.title.");
+    html = html.replace(/<div class=\"mathmd-directive mathmd-maketitle\"><\/div>/, renderTitle(loaded.config));
+  }
+  html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
   const numbers = new Map<string, number>();
   let nextNumber = 1;
   html = html.replace(/\[@([^\]]+)\]/g, (_m, keys: string) => {
@@ -187,7 +275,13 @@ export function compile(source: string, file = "document.md"): CompileResult {
     });
     return "<span class=\"citation\">[" + values.join(", ") + "]</span>";
   });
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}</style></head><body>" + html + bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries) + "</body></html>", config: loaded.config, diagnostics };
+  if (loaded.body.match(/\[@[^\]]+\]/) && referencesCount === 0) diagnostics.error("REFERENCES_DIRECTIVE_MISSING", "Citations require a <references /> element.");
+  if (referencesCount > 0) {
+    if (!(loaded.config.bibliography ?? []).length) diagnostics.warning("MISSING_BIBLIOGRAPHY", "<references /> was requested but no bibliography data was configured.");
+    html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
+  }
+  html = resolveReferences(html, prepared.references, diagnostics);
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.document-title{text-align:center;margin-bottom:2em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

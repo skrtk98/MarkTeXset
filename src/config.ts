@@ -73,6 +73,33 @@ function addUnknownKeyDiagnostics(value: Record<string, any>, allowed: Set<strin
   }
 }
 
+function unknownNested(value: unknown, allowed: string[], label: string, file: string, source: string, diagnostics: Diagnostics): void {
+  if (!isRecord(value)) return;
+  const keys = new Set(allowed);
+  for (const key of Object.keys(value)) if (!keys.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + label + "." + key + "'.", locationFor(source, file, 0));
+}
+
+function validateNestedKeys(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics): void {
+  unknownNested(value.meta, ["language", "timezone", "title", "author", "date"], "meta", file, source, diagnostics);
+  if (Array.isArray(value.meta?.author)) for (const [index, author] of value.meta.author.entries()) unknownNested(author, ["name", "affiliation", "url"], "meta.author." + index, file, source, diagnostics);
+  unknownNested(value.citation, ["style", "heading"], "citation", file, source, diagnostics);
+  unknownNested(value.citation?.heading, ["text", "level"], "citation.heading", file, source, diagnostics);
+  unknownNested(value.network, ["allow", "domains"], "network", file, source, diagnostics);
+  unknownNested(value.layout, ["class", "size", "margins", "paginate", "page", "title", "heading", "counter", "footnote", "equation", "callouts"], "layout", file, source, diagnostics);
+  unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
+  unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
+  unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
+  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "h1", "h2", "h3", "formats"], "layout.heading", file, source, diagnostics);
+  unknownNested(value.layout?.heading?.formats, ["h1", "h2", "h3"], "layout.heading.formats", file, source, diagnostics);
+  unknownNested(value.layout?.counter, ["max-depth", "maxDepth"], "layout.counter", file, source, diagnostics);
+  unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
+  unknownNested(value.layout?.equation, ["numbered", "display", "reference"], "layout.equation", file, source, diagnostics);
+  if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style"], "layout.callouts." + name, file, source, diagnostics);
+  unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
+  if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
+  if (isRecord(value.command?.operators)) for (const [name, definition] of Object.entries(value.command.operators)) unknownNested(definition, ["text", "font", "limits", "redef"], "command.operators." + name, file, source, diagnostics);
+}
+
 function parseYaml(source: string, file: string, diagnostics: Diagnostics): Record<string, any> {
   const document = parseDocument(source, { uniqueKeys: true });
   for (const error of document.errors) diagnostics.error("YAML_PARSE", error.message, locationFor(source, file, 0));
@@ -86,6 +113,7 @@ function parseYaml(source: string, file: string, diagnostics: Diagnostics): Reco
 
 function validateValueShape(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics, root: boolean): void {
   addUnknownKeyDiagnostics(value, root ? ROOT_KEYS : IMPORT_KEYS, file, source, diagnostics);
+  validateNestedKeys(value, file, source, diagnostics);
   if (value.layout?.class !== undefined && value.layout.class !== "article") {
     diagnostics.error("UNSUPPORTED_CLASS", "Only the article class is supported in phase 1.", locationFor(source, file, 0));
   }
@@ -95,6 +123,17 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   const language = value.meta?.language;
   if (language !== undefined && language !== "en" && language !== "ja") {
     diagnostics.error("UNSUPPORTED_LANGUAGE", "Only en and ja are supported in phase 1.", locationFor(source, file, 0));
+  }
+  if (value.meta?.timezone !== undefined) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: String(value.meta.timezone) }).format(); }
+    catch { diagnostics.error("INVALID_TIMEZONE", "Invalid IANA timezone '" + value.meta.timezone + "'.", locationFor(source, file, 0)); }
+  }
+  if (value.meta?.author !== undefined && !Array.isArray(value.meta.author) && typeof value.meta.author !== "string" && !isRecord(value.meta.author)) {
+    diagnostics.error("INVALID_AUTHOR", "meta.author must be a string, mapping, or list.", locationFor(source, file, 0));
+  }
+  if (typeof value.layout?.title?.["date-format"] === "string" || typeof value.layout?.title?.dateFormat === "string") {
+    const dateFormat = value.layout.title["date-format"] ?? value.layout.title.dateFormat;
+    if (!/^(?:yyyy|mm|dd|[-/ .])+$/.test(String(dateFormat))) diagnostics.error("INVALID_DATE_FORMAT", "Date format may only contain yyyy, mm, dd, and separators.", locationFor(source, file, 0));
   }
   if (value.citation?.style !== undefined && value.citation.style !== "numeric") {
     diagnostics.error("UNSUPPORTED_CITATION_STYLE", "Only numeric citation style is supported in phase 1.", locationFor(source, file, 0));
