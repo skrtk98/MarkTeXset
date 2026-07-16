@@ -286,7 +286,7 @@ function renderToc(html: string, config: Config): string {
     const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a>" : match[3];
     return "<li class=\"toc-level-" + match[1] + "\">" + title + "</li>";
   }).join("");
-  return "<nav class=\"table-of-contents\"><ul class=\"toc-list\">" + items + "</ul></nav>";
+  return "<nav class=\"table-of-contents\"><h2 class=\"toc-title\">" + escapeHtml(String(config.layout.heading.toc)) + "</h2><ul class=\"toc-list\">" + items + "</ul></nav>";
 }
 
 function resolveReferences(html: string, references: Map<string, string>, diagnostics: Diagnostics): string {
@@ -344,7 +344,7 @@ export function compile(source: string, file = "document.md"): CompileResult {
   }
   html = resolveReferences(html, prepared.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{margin-left:0}.toc-level-2{margin-left:1.5em}.toc-level-3{margin-left:3em}.toc-level-4{margin-left:4.5em}.toc-level-5{margin-left:6em}.toc-level-6{margin-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

@@ -42,8 +42,14 @@ test("indents nested TOC entries and respects toc-depth", () => {
   const result = compile("---\nmathmd:\n  layout:\n    heading:\n      toc-depth: 2\n---\n<maketoc />\n# One\n## Two\n### Three\n");
   assert.match(result.html, /<li class=\"toc-level-1\">/);
   assert.match(result.html, /<li class=\"toc-level-2\">/);
-  assert.doesNotMatch(result.html, /<nav class="table-of-contents">[\s\S]*toc-level-3/);
-  assert.match(result.html, /\.toc-level-2\{margin-left:1\.5em\}/);
+  assert.doesNotMatch(result.html, /<nav class=\"table-of-contents\">[\s\S]*toc-level-3/);
+  assert.match(result.html, /\.toc-level-2\{padding-left:1\.5em\}/);
+  assert.match(result.html, /<h2 class=\"toc-title\">Contents<\/h2>/);
+});
+
+test("allows configuring the table of contents heading", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    heading:\n      toc: Inhaltsverzeichnis\n---\n<maketoc />\n# Heading\n");
+  assert.match(result.html, /<h2 class=\"toc-title\">Inhaltsverzeichnis<\/h2>/);
 });
 
 test("supports root YAML, imports, last-wins values, and equation labels", () => {

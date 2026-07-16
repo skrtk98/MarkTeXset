@@ -23,6 +23,7 @@ const DEFAULT_CONFIG: Config = {
       numbered: true,
       numberingDepth: 3,
       tocDepth: 3,
+      toc: "Contents",
       formats: {
         h1: "{h1.arabic}.",
         h2: "{h1.arabic}.{h2.arabic}.",
@@ -109,7 +110,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
   unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
   unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
-  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "h1", "h2", "h3", "formats"], "layout.heading", file, source, diagnostics);
+  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "toc", "h1", "h2", "h3", "formats"], "layout.heading", file, source, diagnostics);
   unknownNested(value.layout?.heading?.formats, ["h1", "h2", "h3"], "layout.heading.formats", file, source, diagnostics);
   unknownNested(value.layout?.counter, ["max-depth", "maxDepth"], "layout.counter", file, source, diagnostics);
   unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
@@ -328,6 +329,7 @@ function normalizeConfig(config: Config): void {
   const heading = config.layout.heading;
   heading.numberingDepth = heading["numbering-depth"] ?? heading.numberingDepth ?? 3;
   heading.tocDepth = heading["toc-depth"] ?? heading.tocDepth ?? 3;
+  heading.toc = heading.toc ?? "Contents";
   heading.formats = {
     h1: heading.h1 ?? "{h1.arabic}.",
     h2: heading.h2 ?? "{h1.arabic}.{h2.arabic}.",
