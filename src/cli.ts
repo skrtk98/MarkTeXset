@@ -5,6 +5,7 @@ import path from "node:path";
 import { compileFile } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
 import { startPreview } from "./preview.js";
+import { renderPdf } from "./pdf.js";
 
 function usage(message?: string): never {
   if (message) console.error("CLI error: " + message);
@@ -22,7 +23,7 @@ function parseOutput(args: string[]): { output?: string; format: string; force: 
     else if (args[i] === "--force") force = true;
     else usage("Unknown option '" + args[i] + "'.");
   }
-  if (format !== "html" && format !== "json") usage("Unsupported format '" + format + "'.");
+  if (format !== "html" && format !== "pdf" && format !== "json") usage("Unsupported format '" + format + "'.");
   return { output, format, force };
 }
 
@@ -37,17 +38,18 @@ function report(result: ReturnType<typeof compileFile>, format: string): void {
   else if (result.diagnostics.items.length) process.stderr.write(formatDiagnosticsText(result.diagnostics) + "\n");
 }
 
-function build(args: string[]): void {
+async function build(args: string[]): Promise<void> {
   if (!args.length) usage("build requires an input Markdown file.");
   const input = requireMarkdownInput(args[0]);
   const options = parseOutput(args.slice(1));
-  const output = path.resolve(options.output ?? input.slice(0, -3) + ".html");
+  const output = path.resolve(options.output ?? input.slice(0, -3) + (options.format === "pdf" ? ".pdf" : ".html"));
   if (!fs.existsSync(path.dirname(output))) usage("Output directory does not exist: " + path.dirname(output));
   if (fs.existsSync(output) && !options.force) usage("Output file exists; use --force to overwrite: " + output);
   const result = compileFile(input);
-  report(result, options.format);
   if (result.diagnostics.hasErrors) process.exit(1);
-  fs.writeFileSync(output, result.html, "utf8");
+  if (options.format === "pdf") await renderPdf(result, output, input);
+  else if (options.format === "html") fs.writeFileSync(output, result.html, "utf8");
+  report(result, options.format);
   if (options.format !== "json") console.error("Wrote " + output);
 }
 
@@ -89,13 +91,13 @@ function preview(args: string[]): void {
   startPreview({ input, port, host }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
 }
 
-export function main(argv = process.argv.slice(2)): void {
+export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (!argv.length || argv[0] === "-h" || argv[0] === "--help") usage();
   const command = argv[0];
-  if (command === "build") build(argv.slice(1));
+  if (command === "build") await build(argv.slice(1));
   else if (command === "init") init(argv.slice(1));
   else if (command === "preview") preview(argv.slice(1));
   else usage("Unknown command '" + command + "'.");
 }
 
-if (import.meta.url === "file://" + process.argv[1]) main();
+if (import.meta.url === "file://" + process.argv[1]) main().catch((error) => { console.error("CLI error: " + error.message); process.exit(1); });

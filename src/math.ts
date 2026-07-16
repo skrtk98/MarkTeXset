@@ -5,9 +5,10 @@ import { SVG } from "mathjax-full/js/output/svg.js";
 import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
 import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
 import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
+import { AssistiveMmlHandler } from "mathjax-full/js/a11y/assistive-mml.js";
 
 const adaptor = liteAdaptor();
-RegisterHTMLHandler(adaptor);
+AssistiveMmlHandler(RegisterHTMLHandler(adaptor));
 const input = new TeX({ packages: AllPackages });
 const output = new SVG({ fontCache: "none" });
 const document = mathjax.document("", { InputJax: input, OutputJax: output });
@@ -30,7 +31,7 @@ export interface RenderedMath {
 export function renderMath(source: string, display: boolean): RenderedMath {
   const stripped = stripLabels(source);
   const node = document.convert(stripped.tex, { display });
-  return { html: adaptor.outerHTML(node), labels: stripped.labels, source };
+  return { html: "<span class=\"math-render\"><span class=\"math-svg\">" + adaptor.outerHTML(node) + "</span></span>", labels: stripped.labels, source };
 }
 
 export function renderMultilineMath(source: string): RenderedMath[] {

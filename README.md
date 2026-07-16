@@ -17,6 +17,7 @@ npm run check
 
 ```bash
 npm start -- build input.md -o output.html
+npm start -- build input.md --format pdf -o output.pdf
 npm start -- build input.md --format json
 npm start -- preview input.md --port 3000 --host 127.0.0.1
 npm start -- init docs/article --language ja
@@ -42,6 +43,10 @@ marktexset preview document.md
 
 フェーズ1.5の記法を網羅した調査用サンプルは [examples/phase1.5-comprehensive.md](examples/phase1.5-comprehensive.md) である。import設定、画像、文献データ、ローカル資産も同じ `examples/` 配下に置いている。
 
+フェーズ2のPDF・レイアウト記法を網羅したサンプルは [examples/phase2-comprehensive.md](examples/phase2-comprehensive.md) である。`build --format pdf` は Playwright 管理下の Chromium でPDFを生成し、Paged.js によるページ分割の事前検査、MathJax の SVG + 支援 MathML、ローカル画像、改ページ、はみ出し・重なり・空白ページ診断を行う。
+
+TeXとの比較が必要な場合は [baseline/](baseline/) のDocker補助環境を使う。これはMarkTeXsetのビルド経路ではない。
+
 `init` は空本文の初期文書を作成する。
 
 ```markdown
@@ -57,6 +62,6 @@ mathmd:
 
 ## 実装状況
 
-フェーズ1の npm・TypeScript 基盤、設定読み込み、Markdown/MathJax、基本見出し、Callout、診断、CLI、最小テストを実装済み。ローカルプレビューはフェーズ1拡張として仕様を確定し、実装計画に追加した。PDF・レイアウト検証、文献・言語拡張、数学拡張は [最終仕様書の実装計画](docs/MathMD_Final_Specification.md#11-実装計画) に従って進める。
+フェーズ1.5までの npm・TypeScript 基盤、設定読み込み、Markdown/MathJax、基本見出し、Callout、診断、CLI、ローカルプレビューに加え、フェーズ2の Playwright/Paged.js PDF出力、MathMLアクセシビリティ、ページ制御、レイアウト診断を実装済み。文献・言語拡張、数学拡張は [最終仕様書の実装計画](docs/MathMD_Final_Specification.md#11-実装計画) に従って進める。
 
 TeX は MarkTeXset のコンパイルには使用しない。LuaLaTeX 等は、最終的な活版品質を比較する baseline としてのみ使用する。

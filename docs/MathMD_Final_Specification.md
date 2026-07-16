@@ -24,7 +24,7 @@ marktexset init <path> [options]
 
 - 入力 Markdown は UTF-8。
 - `preview` はローカル開発サーバー、`build` は成果物生成、`init` は初期 Markdown 作成を行う。
-- `build` のフェーズ1出力は HTML のみ。PDF 出力は PDF 実装フェーズで `--format pdf` として追加する。
+- `build` のフェーズ1出力は HTML のみ。フェーズ2では `--format pdf` を追加し、既定の出力拡張子を `.pdf` とする。
 - `build` の通常の診断は stderr、成果物は `-o/--output` で指定したファイルへ出力する。
 - `--format json` は診断 JSON を stdout に出力する。診断がない場合も `{"diagnostics":[]}` とする。
 - 終了コードは成功・警告のみ `0`、入力仕様エラー `1`、CLI 使用方法エラー `2`。
@@ -311,12 +311,12 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 
 ### フェーズ2 — PDF とレイアウト品質
 
-- Playwright 管理下 Chromium による PDF 生成
+- Playwright 管理下 Chromium による `build --format pdf`（既定出力は `.pdf`）
 - Paged.js によるページネーション、ページ番号、ページスタイル、改ページ
-- 内蔵フォントの相対パス読み込みと MathJax MathML アクセシビリティ
+- ローカル資産の相対パス解決と画像の埋め込み、MathJax の SVG + 支援 MathML アクセシビリティ
 - コード・表・数式のはみ出し警告、重なり検査、空白ページ警告
 - レイアウト系テスト（ページ数、文字位置、overflow、overlap）
-- baseline 用 Docker の LuaLaTeX/article、ltjsarticle/luatexja 比較環境
+- baseline 用 Docker の Pandoc + LuaLaTeX、`article` / `ltjsarticle` 比較環境（MarkTeXset のコンパイルには使用しない）
 
 ### フェーズ3 — 文献・言語・高度な文書要素
 
