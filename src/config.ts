@@ -326,8 +326,8 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
 
 function normalizeConfig(config: Config): void {
   const heading = config.layout.heading;
-  heading.numberingDepth = heading.numberingDepth ?? heading["numbering-depth"] ?? 3;
-  heading.tocDepth = heading.tocDepth ?? heading["toc-depth"] ?? 3;
+  heading.numberingDepth = heading["numbering-depth"] ?? heading.numberingDepth ?? 3;
+  heading.tocDepth = heading["toc-depth"] ?? heading.tocDepth ?? 3;
   heading.formats = {
     h1: heading.h1 ?? "{h1.arabic}.",
     h2: heading.h2 ?? "{h1.arabic}.{h2.arabic}.",

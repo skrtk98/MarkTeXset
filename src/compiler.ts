@@ -277,9 +277,11 @@ function renderTitle(config: Config): string {
   return "<header class=\"document-title\"><h1 class=\"document-title-heading\">" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
 }
 
-function renderToc(html: string): string {
+function renderToc(html: string, config: Config): string {
+  const tocDepth = config.layout.heading.tocDepth;
   const items = [...html.matchAll(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g)].map((match) => {
     if (match[2].includes("document-title-heading")) return "";
+    if (Number(match[1]) > tocDepth) return "";
     const id = match[2].match(/\sid=\"([^\"]+)\"/)?.[1];
     const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a>" : match[3];
     return "<li class=\"toc-level-" + match[1] + "\">" + title + "</li>";
@@ -338,11 +340,11 @@ export function compile(source: string, file = "document.md"): CompileResult {
   html = addHeadingNumbers(html, loaded.config);
   if (tocCount > 0) {
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
-    html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
+    html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html, loaded.config));
   }
   html = resolveReferences(html, prepared.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-list{list-style:none;padding-left:0}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{margin-left:0}.toc-level-2{margin-left:1.5em}.toc-level-3{margin-left:3em}.toc-level-4{margin-left:4.5em}.toc-level-5{margin-left:6em}.toc-level-6{margin-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

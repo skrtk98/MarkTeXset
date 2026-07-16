@@ -38,6 +38,14 @@ test("does not number the generated document title or duplicate it in the TOC", 
   assert.doesNotMatch(result.html, /<nav class=\"table-of-contents\">[\s\S]*Sample/);
 });
 
+test("indents nested TOC entries and respects toc-depth", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    heading:\n      toc-depth: 2\n---\n<maketoc />\n# One\n## Two\n### Three\n");
+  assert.match(result.html, /<li class=\"toc-level-1\">/);
+  assert.match(result.html, /<li class=\"toc-level-2\">/);
+  assert.doesNotMatch(result.html, /<nav class="table-of-contents">[\s\S]*toc-level-3/);
+  assert.match(result.html, /\.toc-level-2\{margin-left:1\.5em\}/);
+});
+
 test("supports root YAML, imports, last-wins values, and equation labels", () => {
   const source = "---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    margins: 0mm\n    equation:\n      numbered: true\n---\n\n$$x \\label{eq:x}$$\n";
   const result = compile(source, "/tmp/document.md");
