@@ -1,0 +1,6 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Locally rendered verification artifacts
+examples/*.pdf
