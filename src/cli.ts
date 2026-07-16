@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { compileFile } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
@@ -83,6 +84,7 @@ function preview(args: string[]): void {
     else usage("Unknown option '" + args[i] + "'.");
   }
   if (!Number.isInteger(port) || port < 1 || port > 65535) usage("Port must be an integer from 1 to 65535.");
+  if (!net.isIP(host) && !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host)) usage("Host is not a valid IP address or hostname.");
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") console.error("Warning: preview is accessible from clients that can reach " + host + ".");
   startPreview({ input, port, host }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
 }

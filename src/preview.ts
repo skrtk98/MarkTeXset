@@ -102,7 +102,8 @@ export function startPreview(options: PreviewOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port, options.host, () => {
-      console.error("Preview server running at http://" + options.host + ":" + options.port + "/");
+      const displayHost = options.host.includes(":") ? "[" + options.host + "]" : options.host;
+      console.error("Preview server running at http://" + displayHost + ":" + options.port + "/");
       console.error("Watching " + input);
     });
     const close = () => { if (timer) clearTimeout(timer); for (const watcher of watchers) watcher.close(); socketServer.close(); server.close(() => resolve()); };

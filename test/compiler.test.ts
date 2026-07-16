@@ -58,6 +58,13 @@ test("numbers multiline equations per row and rejects Callout-only forbidden blo
   assert.ok(result.diagnostics.items.some((item) => item.code === "CALLOUT_CODE_BLOCK"));
 });
 
+test("rejects duplicate IDs and citations without a references directive", () => {
+  const result = compile("# One {#same}\n\n# Two {#same}\n\n[@key]");
+  assert.ok(result.diagnostics.items.some((item) => item.code === "DUPLICATE_ID"));
+  assert.ok(result.diagnostics.items.some((item) => item.code === "REFERENCES_DIRECTIVE_MISSING"));
+  for (const item of result.diagnostics.items) assert.ok(item.location);
+});
+
 test("control tags are self-closing HTML elements in the source language", () => {
   const result = compile("<maketoc />\n\n<pagebreak />\n\n<pagestyle name=\"empty\" />\n");
   assert.equal(result.diagnostics.hasErrors, false);
