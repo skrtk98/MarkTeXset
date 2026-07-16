@@ -1,0 +1,233 @@
+# MarkTeXset 最終仕様書・実装計画
+
+**状態:** 確定版  
+**対象:** フェーズ1から最終フェーズまで  
+**更新日:** 2026-07-16
+
+この文書を MarkTeXset の唯一の現行仕様書とする。`docs/old/` 配下は過去の設計・レビュー記録であり、仕様判断の根拠として参照しない。
+
+## 1. 目的と基本方針
+
+MarkTeXset は、数学文書向け Markdown を HTML と PDF に変換する npm パッケージである。入力は CommonMark を基本とし、MathJax による数式、Callout による定理環境、Pandoc 互換引用、ページ制御を追加する。
+
+TeX は MarkTeXset のコンパイルには使用しない。活版品質の比較対象としてのみ、言語別の TeX baseline を使用する。
+
+品質保証の最低基準は、Pandoc の Markdown→TeX で得られる TeX 相当の組版品質とする。日本語では日本語組版品質も受け入れ対象とする。
+
+## 2. 入出力と CLI
+
+```text
+marktexset <input.md> [-o output.html] [--format text|json]
+```
+
+- 入力 Markdown は UTF-8。
+- 出力は HTML。PDF 出力はフェーズ2で追加する。
+- 通常の診断は stderr、人間向け HTML は stdout または `-o` で指定したファイルへ出力する。
+- `--format json` は診断 JSON を stdout に出力する。診断がない場合も `{"diagnostics":[]}` とする。
+- 終了コードは成功・警告のみ `0`、入力仕様エラー `1`、CLI 使用方法エラー `2`。
+- エラーがある場合、可能な限り全エラーを収集し、HTML/PDF は生成しない。
+
+## 3. 設定と import
+
+ルート Markdown の先頭には、任意で一つだけ YAML Frontmatter を置ける。
+
+```yaml
+---
+mathmd:
+  meta:
+    language: ja
+---
+```
+
+Frontmatter がない場合は既定値を使う。import は入力 Markdown のディレクトリを基準とし、絶対パスも許可する。ただし `..` による親ディレクトリ参照は禁止する。存在しない import はエラー、同一ファイルの重複 import は一度だけ読み、後続を警告する。
+
+import ファイルは Frontmatter も `mathmd` ラッパーも持たない YAML マップで、設定内容だけを記述する。再帰 import、未知キー、YAML の重複キーはエラーとする。
+
+通常の設定値は後勝ち、`bibliography` と `network.domains` は指定順に追加マージする。import 間のマクロ・演算子名衝突はエラーとし、ルート設定からの上書きだけを許可する。ユーザー定義マクロ・演算子同士の衝突は常にエラー。
+
+## 4. フェーズ1の既定値
+
+```yaml
+mathmd:
+  meta:
+    language: en
+    timezone: UTC
+  citation:
+    style: numeric
+    heading:
+      text: References
+      level: 2
+  layout:
+    class: article
+    size: A4
+    margins: 25mm
+    paginate: true
+    page:
+      number:
+        visible: true
+        position: bottom-center
+        format: "{page.arabic}"
+      style: plain
+    title:
+      date-format: yyyy-mm-dd
+    heading:
+      numbered: true
+      numbering-depth: 3
+      toc-depth: 3
+      h1: "{h1.arabic}."
+      h2: "{h1.arabic}.{h2.arabic}."
+      h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}."
+    counter:
+      max-depth: 3
+    footnote:
+      format: "{footnote.arabic}"
+      placement: bottom
+    equation:
+      numbered: false
+      display: "({equation.arabic})"
+      reference: "式 ({equation.arabic})"
+```
+
+フェーズ1は `language: en|ja`、`class: article`、`size: A4` のみ許可する。日付の既定値は指定タイムゾーンのシステム時刻、既定タイムゾーンは UTC。余白は mm、cm、in、pt の非負値で、上下左右を個別指定する map も許可する。ゼロは許可する。
+
+## 5. Markdown と専用要素
+
+CommonMark 基本構文、脚注、MathJax 数式、Callout、GFM 互換テーブル、Frontmatter、Heading Attributes、水平線をフェーズ1でサポートする。生 HTML は禁止するが、HTML コメントは自由記述として扱い、制御には使わない。
+
+Heading Attributes は `{#id .class}` を許可する。見出しに自動 ID は付けない。`#:` のような番号なし見出しはカウンターを進めず、下位見出しは不足階層を 0 として表示する。
+
+コードブロックはフェンス付き・インデント付き、画像は Markdown ファイル基準のローカル PNG/JPEG/SVG のみを許可する。`../`、絶対パス、URL、生 HTML、取り消し線、タスクリスト、定義リスト、include、embed、figure、画像サイズ拡張はフェーズ1では非対応。
+
+トップレベルの制御要素は次の自己完結タグに限定する。
+
+```html
+<pagebreak />
+<pagestyle name="empty" />
+<maketoc />
+<maketitle />
+<references />
+```
+
+`pagestyle` は `empty`、`plain`、`headings` のみ。未知値は警告して `plain` にフォールバックする。`pagebreak` は先頭・末尾・連続でも実行し、空白ページを警告する。`maketitle`、`maketoc`、`references` は複数指定時に最初だけ有効とし、後続を警告する。
+
+## 6. 見出し、目次、Callout
+
+見出し番号は既定で `1.`、`1.1.`、`1.1.1.`。`numbering-depth` を超える見出しは表示するが番号を付けない。`toc-depth` を超える見出しは目次に含めない。`<maketoc />` の位置に、見出し番号・タイトル・ページ番号を含む目次を生成する。目次対象がない場合は警告して空の目次を生成する。
+
+Callout は次の記法と設定を使う。
+
+```markdown
+> [!theorem] ピタゴラスの定理
+> $a^2+b^2=c^2$
+```
+
+```yaml
+layout:
+  callouts:
+    theorem:
+      title: "Theorem {theorem.arabic}."
+      style: plain
+    proof:
+      title: Proof
+      style: proof
+```
+
+`numbered` は持たず、title にカウンタープレースホルダーがある場合だけ番号を付ける。未登録環境は環境名を title、`plain` を style とする。フェーズ1の組み込み style は `plain`、`definition`、`remark`、`proof`。未知 style は警告して plain にフォールバックする。proof は番号なし、title は YAML の title、内容末尾に `□` を自動付与する。
+
+カウンター形式は `arabic`、`roman`、`Roman`、`alph`、`Alph`。`{h1 > theorem.arabic}` のようなスコープを許可し、要素数が `layout.counter.max-depth` を超えたらエラー。未知カウンター・未知形式はエラー。
+
+## 7. ID、相互参照、引用
+
+数式 `\label{eq:quadratic}`、Heading Attribute の ID、Callout の ID は同一名前空間を共有し、重複 ID はエラーとする。内部参照は標準 Markdown の fragment link に統一する。
+
+```markdown
+数式を[式](#eq:quadratic)で参照する。
+番号を自動表示する場合は[](#eq:quadratic)。
+```
+
+明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
+
+引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。既定は `References` / level 2。
+
+## 8. 数式
+
+MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロックは `$$...$$`。ブロックの行分割は `\\` のみで、実改行では分割しない。`&` と `&&` はアンカー位置を進め、アンカーごとに左右揃えを交互に切り替える。行ごとのアンカー不足は空セルで補う。
+
+`equation.numbered: true` は全行を番号付けし、`\notag` 行は番号もインクリメントも行わない。`false` は `\label` のある行だけ番号付けする。`\notag` と `\label` の同一行はエラー。行列内の `&` / `\\` は行列用として解釈する。
+
+許可する行列系は `cases`、`matrix`、`pmatrix`、`bmatrix`、`Bmatrix`、`vmatrix`、`Vmatrix`、`smallmatrix`。`aligned`、`alignedat`、`align`、`align*`、`gather`、`gather*` は採用しない。
+
+フェーズ1の TeX subset は `\text`、`\operatorname`、`\frac`、`\sqrt`、主要大型演算子、`\mathbb`、`\mathcal`、`\mathrm` 等。`\text{...}` は Unicode、平文、`% # $ & _ { }` のエスケープだけ許可する。
+
+マクロ・演算子・組み込みコマンドは同じ TeX コマンド名前空間で扱う。マクロは args 0〜4、オプション引数なし。組み込みを置き換える場合のみ `redef: true` を許可し、既定値は false。limits の既定値は false。
+
+## 9. 脚注
+
+脚注は arabic 番号で各ページ下部に配置する。同一定義の重複はエラー。フェーズ1では Callout 内の脚注定義を禁止する。未定義脚注参照は警告し、`[^missing]` 全体を赤太字で表示し、リンクと番号は生成しない。
+
+## 10. 診断、フォント、ネットワーク
+
+診断メッセージは英語固定。JSON の必須フィールドは `severity`、`code`、`message`、`location.file`、`location.start`、`location.end`。位置は Unicode code point の1始まり、`end` は排他的。診断順はエラー、警告の順にし、各グループ内は文書位置順とする。候補表示は編集距離2以下・最大3件。
+
+既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
+
+## 11. 実装計画
+
+### フェーズ1 — 基本 HTML コンパイラ（実装済み）
+
+- npm プロジェクト、TypeScript、CLI、設定既定値、YAML Frontmatter、import の基盤
+- 英日・A4・余白・ページ設定の検証
+- CommonMark 基本構文、脚注プラグイン、MathJax 数式 SVG
+- 基本見出し番号、Callout、proof の `□`
+- `pagebreak`、`pagestyle`、`maketoc`、`maketitle`、`references` の制御タグ認識
+- `\label` と簡易式番号、Pandoc 形式引用、`.bib` 読み込み基盤
+- text/JSON 診断と終了コード
+- 正常系・異常系の最小テスト
+
+現時点の実装確認は `npm run check` で行う。フェーズ1は仕様の土台を実装した段階であり、ページレイアウト検証や未実装の細部は下記フェーズで完成させる。
+
+### フェーズ1.5 — 仕様準拠の強化
+
+- Heading Attributes の ID/class と、Callout ID を DOM に反映
+- ID 名前空間の重複検査と内部参照の自動表示・未解決診断
+- 目次、タイトル、参考文献の位置指定と重複タグ規則
+- 数式の行単位番号、`\notag`、`&` / `&&` アライメントの完全実装
+- Callout 内許可要素、脚注、画像、表、コードブロックの禁止・許可検査
+- YAML の全階層に対する未知キー・型・重複キー診断
+- 行・列・import 先を含む構造化位置情報と候補メッセージ
+- 1機能1文書の正常系・異常系テストを仕様項目ごとに追加
+
+### フェーズ2 — PDF とレイアウト品質
+
+- Playwright 管理下 Chromium による PDF 生成
+- Paged.js によるページネーション、ページ番号、ページスタイル、改ページ
+- 内蔵フォントの相対パス読み込みと MathJax MathML アクセシビリティ
+- コード・表・数式のはみ出し警告、重なり検査、空白ページ警告
+- レイアウト系テスト（ページ数、文字位置、overflow、overlap）
+- baseline 用 Docker の LuaLaTeX/article、ltjsarticle/luatexja 比較環境
+
+### フェーズ3 — 文献・言語・高度な文書要素
+
+- author-year 等の citation style
+- BCP 47 言語タグ、未対応言語の en フォールバック
+- `description` 環境相当の定義リスト
+- Callout 内の表・画像・コード・脚注定義・入れ子
+- 画像キャプション、図番号、図参照
+- 取り消し線、タスクリスト、高度な日付フォーマット
+
+### フェーズ4 — 数学・拡張機構
+
+- `tikz-cd`
+- `\ref` / `\eqref`
+- ユーザー定義の組み込み style と任意 CSS class
+- `aligned`、`alignedat`、`align`、`gather` 系ではなく、確定済みの MathJax 互換拡張として安全に設計した複数行環境
+- `mathbf`、`mathsf`、`mathtt` 等の追加フォント
+- 最終的に任意 HTML 属性を安全な許可リスト方式で提供
+
+### 各フェーズの完了条件
+
+各機能について正常系・異常系・レイアウト系を分離し、1機能1文書と期待診断 JSON を用意する。診断の severity、code、位置情報、終了コードは完全一致、message は部分一致とする。画像差分は参考値として記録するだけで合否判定には使わない。日付、タイムゾーン、外部リソースのキャッシュをテストで固定する。
+
+## 12. 仕様変更手順
+
+仕様変更はこの文書を直接更新し、実装・テスト・README を同一の意味ある変更単位で更新する。過去版を確認する必要がある場合のみ `docs/old/` を参照する。新しい仕様を採用した場合は、旧仕様との互換性を暗黙に仮定せず、必要な移行診断とテストを追加する。
