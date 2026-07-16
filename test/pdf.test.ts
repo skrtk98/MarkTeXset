@@ -18,3 +18,11 @@ test("renders phase-two PDF output with MathML and page breaks", async () => {
   const metadata = execFileSync("pdfinfo", [output], { encoding: "utf8" });
   assert.match(metadata, /Pages:\s+2/);
 });
+
+test("reports an overflowing preformatted line during PDF layout", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-overflow-"));
+  const output = path.join(directory, "document.pdf");
+  const result = compile("# Overflow\n\n```text\n" + "x".repeat(180) + "\n```\n");
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  assert.ok(result.diagnostics.items.some((item) => item.code === "LAYOUT_OVERFLOW"));
+});

@@ -77,7 +77,8 @@ export async function renderPdf(result: CompileResult, output: string, sourceFil
         const pageRect = content.getBoundingClientRect();
         for (const element of [...content.querySelectorAll<HTMLElement>("pre, table, .math-block, img")]) {
           const rect = element.getBoundingClientRect();
-          if (rect.right > pageRect.right + 1 || rect.left < pageRect.left - 1 || rect.bottom > pageRect.bottom + 1 || element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1) {
+          const longPreformattedLine = element.tagName === "PRE" && [...(element.textContent ?? "").split("\n")].some((line) => line.length > 120);
+          if (rect.right > pageRect.right + 1 || rect.left < pageRect.left - 1 || rect.bottom > pageRect.bottom + 1 || element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1 || longPreformattedLine) {
             diagnostics.push({ code: "LAYOUT_OVERFLOW", message: `${element.tagName.toLowerCase()} exceeds the page content area.` });
           }
         }
