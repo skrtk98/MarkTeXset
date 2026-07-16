@@ -52,6 +52,12 @@ test("validates nested configuration keys and timezones", () => {
   assert.ok(codes.includes("INVALID_TIMEZONE"));
 });
 
+test("numbers multiline equations per row and rejects Callout-only forbidden blocks", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b\\\\c&=d \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
+  assert.equal((result.html.match(/equation-number/g) ?? []).length, 1);
+  assert.ok(result.diagnostics.items.some((item) => item.code === "CALLOUT_CODE_BLOCK"));
+});
+
 test("control tags are self-closing HTML elements in the source language", () => {
   const result = compile("<maketoc />\n\n<pagebreak />\n\n<pagestyle name=\"empty\" />\n");
   assert.equal(result.diagnostics.hasErrors, false);

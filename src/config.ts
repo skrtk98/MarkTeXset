@@ -69,14 +69,34 @@ function merge(base: Record<string, any>, next: Record<string, any>): Record<str
 
 function addUnknownKeyDiagnostics(value: Record<string, any>, allowed: Set<string>, file: string, source: string, diagnostics: Diagnostics): void {
   for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + key + "'.", locationFor(source, file, 0));
+    if (!allowed.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + key + "'.", locationFor(source, file, 0), { suggestions: closest(key, [...allowed]) });
   }
+}
+
+function editDistance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const above = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return row[b.length];
+}
+
+function closest(value: string, candidates: string[]): string[] {
+  return candidates.map((candidate) => ({ candidate, distance: editDistance(value, candidate) }))
+    .filter((item) => item.distance <= 2)
+    .sort((a, b) => a.distance - b.distance || a.candidate.localeCompare(b.candidate))
+    .slice(0, 3).map((item) => item.candidate);
 }
 
 function unknownNested(value: unknown, allowed: string[], label: string, file: string, source: string, diagnostics: Diagnostics): void {
   if (!isRecord(value)) return;
   const keys = new Set(allowed);
-  for (const key of Object.keys(value)) if (!keys.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + label + "." + key + "'.", locationFor(source, file, 0));
+  for (const key of Object.keys(value)) if (!keys.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + label + "." + key + "'.", locationFor(source, file, 0), { suggestions: closest(key, allowed) });
 }
 
 function validateNestedKeys(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics): void {

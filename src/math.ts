@@ -17,19 +17,20 @@ function stripLabels(source: string): { tex: string; labels: string[] } {
   const tex = source.replace(/\\label\{([^}]+)\}/g, (_match, label: string) => {
     labels.push(label);
     return "";
-  });
+  }).replace(/\\notag\b/g, "");
   return { tex, labels };
 }
 
 export interface RenderedMath {
   html: string;
   labels: string[];
+  source?: string;
 }
 
 export function renderMath(source: string, display: boolean): RenderedMath {
   const stripped = stripLabels(source);
   const node = document.convert(stripped.tex, { display });
-  return { html: adaptor.outerHTML(node), labels: stripped.labels };
+  return { html: adaptor.outerHTML(node), labels: stripped.labels, source };
 }
 
 export function renderMultilineMath(source: string): RenderedMath[] {

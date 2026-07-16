@@ -3,7 +3,7 @@ import path from "node:path";
 import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import { loadConfig, type Config } from "./config.js";
-import { Diagnostics } from "./diagnostics.js";
+import { Diagnostics, locationFor } from "./diagnostics.js";
 import { renderMath, renderMultilineMath } from "./math.js";
 
 export interface CompileResult {
@@ -41,6 +41,11 @@ function renderCallout(name: string, body: string, config: Config, counters: Map
     references.set(id, renderedTitle);
   }
   const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
+  if (/^\s*>?\s*\[!/.test(body)) diagnostics.error("NESTED_CALLOUT", "Nested Callouts are not supported inside a Callout.");
+  if (/(^|\n)\s*(```|~~~|    )/.test(body)) diagnostics.error("CALLOUT_CODE_BLOCK", "Code blocks are not supported inside a Callout.");
+  if (/!\[[^\]]*\]\([^)]*\)/.test(body)) diagnostics.error("CALLOUT_IMAGE", "Images are not supported inside a Callout.");
+  if (/(^|\n)\s*\|.*\|/.test(body)) diagnostics.error("CALLOUT_TABLE", "Tables are not supported inside a Callout.");
+  if (/(^|\n)\s*\[\^[^\]]+\]:/.test(body)) diagnostics.error("CALLOUT_FOOTNOTE_DEFINITION", "Footnote definitions are not supported inside a Callout.");
   const content = md.render(body.trim() + "\n");
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
@@ -58,10 +63,11 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
   let equation = 0;
   let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (_m, body: string) => {
     try {
+      if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
       const rows = renderMultilineMath(body);
       const rendered = rows.map((row) => {
         const label = row.labels[0];
-        const notag = /\\notag\b/.test(body);
+        const notag = /\\notag\b/.test(row.source ?? "");
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
         const numberValue = numbered && !notag ? ++equation : 0;
@@ -71,7 +77,17 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
           ids.add(label);
           references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
         }
-        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + row.html + number + "</div>";
+        const rowSource = row.source ?? "";
+        let mathHtml = row.html;
+        if (rowSource.includes("&")) {
+          const cells = rowSource.split("&");
+          mathHtml = cells.map((cell, index) => {
+            if (!cell.trim()) return "<span class=\"math-anchor-gap\"></span>";
+            try { return "<span class=\"math-anchor-" + (index % 2 ? "left" : "right") + "\">" + renderMath(cell, true).html + "</span>"; }
+            catch { return "<span class=\"math-error\">[math error]</span>"; }
+          }).join("");
+        }
+        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + mathHtml + number + "</div>";
       }).join("");
       return put("<div class=\"math-block\">" + rendered + "</div>");
     } catch (error) {
@@ -281,7 +297,8 @@ export function compile(source: string, file = "document.md"): CompileResult {
     html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
   }
   html = resolveReferences(html, prepared.references, diagnostics);
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.document-title{text-align:center;margin-bottom:2em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {
