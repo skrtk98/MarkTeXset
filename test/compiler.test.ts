@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
 import { Diagnostics } from "../src/diagnostics.js";
@@ -37,4 +41,24 @@ test("control tags are self-closing HTML elements in the source language", () =>
   assert.match(result.html, /mathmd-maketoc/);
   assert.match(result.html, /mathmd-pagebreak/);
   assert.match(result.html, /data-name=\"empty\"/);
+});
+
+test("build writes a sibling HTML file and does not overwrite without --force", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-build-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, "# First\n");
+  const cli = path.resolve("src/cli.ts");
+  execFileSync(process.execPath, ["--import", "tsx", cli, "build", input], { encoding: "utf8" });
+  const output = path.join(directory, "document.html");
+  assert.match(fs.readFileSync(output, "utf8"), /First/);
+  assert.throws(() => execFileSync(process.execPath, ["--import", "tsx", cli, "build", input], { encoding: "utf8", stdio: "pipe" }));
+});
+
+test("init creates the minimal English or Japanese frontmatter", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-init-"));
+  const cli = path.resolve("src/cli.ts");
+  execFileSync(process.execPath, ["--import", "tsx", cli, "init", path.join(directory, "en")], { encoding: "utf8" });
+  execFileSync(process.execPath, ["--import", "tsx", cli, "init", path.join(directory, "ja.md"), "--language", "ja"], { encoding: "utf8" });
+  assert.match(fs.readFileSync(path.join(directory, "en.md"), "utf8"), /language: en/);
+  assert.match(fs.readFileSync(path.join(directory, "ja.md"), "utf8"), /title: \"無題の文書\"/);
 });
