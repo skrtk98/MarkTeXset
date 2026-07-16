@@ -53,6 +53,9 @@ body { font-family: serif; }
 .math-svg { display: inline; }
 .math-block { break-inside: avoid; }
 pre, table, .callout, .math-block, img { break-inside: avoid; max-width: 100%; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+p { break-inside: avoid; }
+h1, h2, h3, h4, h5, h6 { break-after: avoid; }
 .table-of-contents { break-inside: avoid; }
 @media print { .mathmd-pagebreak { break-before: page; page-break-before: always; } }
 </style>`;
@@ -69,6 +72,14 @@ export async function renderPdf(result: CompileResult, output: string, sourceFil
     await page.addScriptTag({ path: pagedPath });
     await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 30_000 });
     await page.evaluate(() => document.fonts?.ready);
+    let previousPageCount = -1;
+    let stableCycles = 0;
+    for (let cycle = 0; cycle < 300 && stableCycles < 3; cycle++) {
+      const pageCount = await page.locator(".pagedjs_page").count();
+      if (pageCount === previousPageCount) stableCycles++;
+      else { previousPageCount = pageCount; stableCycles = 0; }
+      if (stableCycles < 3) await page.waitForTimeout(100);
+    }
     const layoutDiagnostics = await page.evaluate(() => {
       const diagnostics: Array<{ code: string; message: string }> = [];
       const pages = [...document.querySelectorAll<HTMLElement>(".pagedjs_page")];

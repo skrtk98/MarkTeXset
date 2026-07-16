@@ -22,7 +22,10 @@ test("renders phase-two PDF output with MathML and page breaks", async () => {
 test("reports an overflowing preformatted line during PDF layout", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-overflow-"));
   const output = path.join(directory, "document.pdf");
-  const result = compile("# Overflow\n\n```text\n" + "x".repeat(180) + "\n```\n");
+  const result = compile("# Overflow\n\n```text\n" + "x".repeat(180) + "\n```\n\n# After overflow\n\nThis content must remain in the PDF.\n");
   await renderPdf(result, output, path.join(directory, "document.md"));
   assert.ok(result.diagnostics.items.some((item) => item.code === "LAYOUT_OVERFLOW"));
+  const text = execFileSync("pdftotext", [output, "-"], { encoding: "utf8" });
+  assert.match(text, /After overflow/);
+  assert.match(text, /This content must remain in the PDF/);
 });
