@@ -145,7 +145,7 @@ The fragment link form is used for internal references: [text](#id).
 
 ## Numberless headings and footnotes
 
-#:
+#: Numberless section
 
 ## Background
 

@@ -13,6 +13,25 @@ export interface CompileResult {
 }
 
 const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function expandMacros(source: string, config: Config): string {
+  let expanded = source;
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (const [name, definition] of Object.entries(config.command?.macros ?? {}) as Array<[string, any]>) {
+      const args = Number(definition.args ?? 0);
+      const pattern = new RegExp("\\\\" + name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + (args ? "((?:\\{[^{}]*\\}|[^\\s\\\\])+?)".repeat(args) : ""), "g");
+      expanded = expanded.replace(pattern, (_match, ...values: string[]) => {
+        changed = true;
+        const parameters = values.slice(0, args).map((value) => value.replace(/^\{|\}$/g, ""));
+        return String(definition.body ?? "").replace(/#([1-4])/g, (_placeholder: string, index: string) => parameters[Number(index) - 1] ?? "");
+      });
+    }
+    if (!changed) break;
+  }
+  return expanded;
+}
 
 function counterText(template: string, name: string, value: number): string {
   return template.replace(/\{([^}]+)\}/g, (_m, expression: string) => {
@@ -48,7 +67,7 @@ function renderCallout(name: string, body: string, config: Config, counters: Map
   if (/(^|\n)\s*\[\^[^\]]+\]:/.test(body)) diagnostics.error("CALLOUT_FOOTNOTE_DEFINITION", "Footnote definitions are not supported inside a Callout.");
   const protectedBody = protectMath(body.trim() + "\n", config, diagnostics, ids, references);
   let content = md.render(protectedBody.text);
-  for (const [key, value] of protectedBody.values) content = content.split("<p>" + key + "</p>").join(value).split(key).join(value);
+  for (const [key, value] of protectedBody.values) content = content.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
   return "<div" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"" + classAttribute + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
@@ -80,12 +99,12 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
           references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
         }
         const rowSource = row.source ?? "";
-        let mathHtml = row.html;
+        let mathHtml = renderMath(expandMacros(rowSource, config), true).html;
         if (rowSource.includes("&")) {
           const cells = rowSource.split("&");
           mathHtml = cells.map((cell, index) => {
             if (!cell.trim()) return "<span class=\"math-anchor-gap\"></span>";
-            try { return "<span class=\"math-anchor-" + (index % 2 ? "left" : "right") + "\">" + renderMath(cell, true).html + "</span>"; }
+      try { return "<span class=\"math-anchor-" + (index % 2 ? "left" : "right") + "\">" + renderMath(expandMacros(cell, config), true).html + "</span>"; }
             catch { return "<span class=\"math-error\">[math error]</span>"; }
           }).join("");
         }
@@ -98,7 +117,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
     }
   });
   text = text.replace(/\$([^$\n]+)\$/g, (_m, body: string) => {
-    try { return put(renderMath(body, false).html); }
+    try { return put(renderMath(expandMacros(body, config), false).html); }
     catch (error) { diagnostics.error("MATH_RENDER", String(error)); return put("<span class=\"math-error\">[math error]</span>"); }
   });
   return { text, values };
@@ -120,6 +139,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       const body: string[] = [];
       let j = i + 1;
       while (j < lines.length && (/^>/.test(lines[j]) || lines[j].trim() === "")) {
+        if (/^>\s*\[!([^\]]+)\]/.test(lines[j])) break;
         body.push(lines[j].replace(/^>\s?/, "")); j++;
       }
       let calloutTitle = callout[2] ?? "";
@@ -162,7 +182,8 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
     }
     output.push(line);
   }
-  const protectedMath = protectMath(output.join("\n"), config, diagnostics, ids, references);
+  const commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
+  const protectedMath = protectMath(commentSafeSource, config, diagnostics, ids, references);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
   return { text: protectedMath.text, replacements, ids, references };
 }
@@ -171,8 +192,9 @@ function addHeadingNumbers(html: string, config: Config): string {
   const counters = [0, 0, 0, 0, 0, 0, 0];
   const depth = Number(config.layout.heading.numberingDepth ?? 3);
   const formats = config.layout.heading.formats ?? {};
-  return html.replace(/<h([1-6])>([\s\S]*?)<\/h\1>/g, (_m, levelText: string, content: string) => {
+  return html.replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g, (_m, levelText: string, existingAttrs: string, content: string) => {
     const level = Number(levelText);
+    if (existingAttrs.includes("document-title-heading")) return _m;
     const marker = "MATHMDNONUM ";
     let id = "";
     let classes = "";
@@ -183,8 +205,13 @@ function addHeadingNumbers(html: string, config: Config): string {
       if (attribute) { id = attribute[1]; classes = attribute[2].replace(/\./g, " "); content = attribute[3]; }
     }
     if (content.startsWith(marker)) content = content.slice(marker.length);
-    const attrs = (id ? " id=\"" + escapeHtml(id) + "\"" : "") + (classes ? " class=\"" + escapeHtml(classes) + "\"" : "");
-    if (unnumbered || !config.layout.heading.numbered || level > depth) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
+    const attrs = existingAttrs + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + (classes ? " class=\"" + escapeHtml(classes) + "\"" : "");
+    if (unnumbered) {
+      counters[level] = 0;
+      for (let i = level + 1; i <= 6; i++) counters[i] = 0;
+      return "<h" + level + attrs + ">" + content + "</h" + level + ">";
+    }
+    if (!config.layout.heading.numbered || level > depth) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
     counters[level]++;
     for (let i = level + 1; i <= 6; i++) counters[i] = 0;
     const format = String(formats["h" + level] ?? "");
@@ -226,7 +253,7 @@ function bibliography(config: Config, body: string, diagnostics: Diagnostics, fi
     return "<li id=\"ref-" + escapeHtml(key) + "\">[" + (index + 1) + "] " + escapeHtml(String(entry.title ?? key)) + (entry.url ? " <a href=\"" + escapeHtml(entry.url) + "\">" + escapeHtml(entry.url) + "</a>" : "") + "</li>";
   }).join("");
   const heading = config.citation.heading;
-  return "<h" + heading.level + ">" + escapeHtml(heading.text) + "</h" + heading.level + "><ol class=\"references\">" + html + "</ol>";
+  return "<h" + heading.level + ">" + escapeHtml(heading.text) + "</h" + heading.level + "><ul class=\"references\">" + html + "</ul>";
 }
 
 function renderTitle(config: Config): string {
@@ -241,14 +268,16 @@ function renderTitle(config: Config): string {
     return "<div class=\"author\">" + name + affiliation + link + "</div>";
   }).join("");
   const date = meta.date ? "<div class=\"date\">" + escapeHtml(String(meta.date)) + "</div>" : "";
-  return "<header class=\"document-title\"><h1>" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
+  return "<header class=\"document-title\"><h1 class=\"document-title-heading\">" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
 }
 
 function renderToc(html: string): string {
   const items = [...html.matchAll(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g)].map((match) => {
+    if (match[2].includes("document-title-heading")) return "";
     const id = match[2].match(/\sid=\"([^\"]+)\"/)?.[1];
-    return id ? "<li class=\"toc-level-" + match[1] + "\"><a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a></li>" : "";
-  }).filter(Boolean).join("");
+    const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a>" : match[3];
+    return "<li class=\"toc-level-" + match[1] + "\">" + title + "</li>";
+  }).join("");
   return "<nav class=\"table-of-contents\"><ol>" + items + "</ol></nav>";
 }
 
@@ -268,8 +297,9 @@ export function compile(source: string, file = "document.md"): CompileResult {
   const prepared = preprocess(loaded.body, loaded.config, diagnostics);
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote);
-  let html = addHeadingNumbers(md.render(prepared.text), loaded.config);
-  for (const [key, value] of prepared.replacements) html = html.split("<p>" + key + "</p>").join(value).split(key).join(value);
+  let html = md.render(prepared.text);
+  for (const [key, value] of prepared.replacements) html = html.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+  html = html.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
   const tocCount = (loaded.body.match(/<maketoc\s*\/>/g) ?? []).length;
   const titleCount = (loaded.body.match(/<maketitle\s*\/>/g) ?? []).length;
   const referencesCount = (loaded.body.match(/<references\s*\/>/g) ?? []).length;
@@ -279,10 +309,6 @@ export function compile(source: string, file = "document.md"): CompileResult {
   if (/<maketitle\s*\/>/.test(loaded.body)) {
     if (!loaded.config.meta?.title) diagnostics.warning("MISSING_TITLE", "<maketitle /> requires meta.title.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketitle\"><\/div>/, renderTitle(loaded.config));
-  }
-  if (tocCount > 0) {
-    if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
-    html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
   }
   const numbers = new Map<string, number>();
   let nextNumber = 1;
@@ -303,7 +329,17 @@ export function compile(source: string, file = "document.md"): CompileResult {
     if (!(loaded.config.bibliography ?? []).length) diagnostics.warning("MISSING_BIBLIOGRAPHY", "<references /> was requested but no bibliography data was configured.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
   }
+  html = addHeadingNumbers(html, loaded.config);
+  if (tocCount > 0) {
+    if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
+    html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
+  }
   html = resolveReferences(html, prepared.references, diagnostics);
+  const footnoteDefinitions = new Set([...loaded.body.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+  for (const match of loaded.body.matchAll(/\[\^([^\]]+)\]/g)) {
+    if (!footnoteDefinitions.has(match[1])) diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + match[1] + "' is not defined.");
+  }
+  html = html.replace(/\[\^([^\]]+)\]/g, (_match, label: string) => footnoteDefinitions.has(label) ? _match : "<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
   return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }

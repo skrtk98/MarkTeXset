@@ -24,6 +24,20 @@ test("renders inline and block math inside Callouts", () => {
   assert.ok((result.html.match(/MathJax/g) ?? []).length >= 2);
 });
 
+test("keeps adjacent Callouts as separate environments", () => {
+  const result = compile("> [!theorem] First\n> One.\n\n> [!definition] Second\n> Two.\n");
+  assert.equal((result.html.match(/class=\"callout /g) ?? []).length, 2);
+  assert.doesNotMatch(result.html, /<p><div[^>]*class=\"callout/);
+  assert.match(result.html, /First[\s\S]*Second/);
+});
+
+test("does not number the generated document title or duplicate it in the TOC", () => {
+  const result = compile("---\nmathmd:\n  meta:\n    title: Sample\n---\n<maketitle />\n<maketoc />\n# Heading\n");
+  assert.match(result.html, /<h1 class=\"document-title-heading\">Sample<\/h1>/);
+  assert.doesNotMatch(result.html, /document-title-heading[^>]*>1\. Sample/);
+  assert.doesNotMatch(result.html, /<nav class=\"table-of-contents\">[\s\S]*Sample/);
+});
+
 test("supports root YAML, imports, last-wins values, and equation labels", () => {
   const source = "---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    margins: 0mm\n    equation:\n      numbered: true\n---\n\n$$x \\label{eq:x}$$\n";
   const result = compile(source, "/tmp/document.md");
