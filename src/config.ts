@@ -140,6 +140,8 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   if (value.layout?.size !== undefined && value.layout.size !== "A4") {
     diagnostics.error("UNSUPPORTED_PAGE_SIZE", "Only A4 is supported in phase 1.", locationFor(source, file, 0));
   }
+  if (value.layout?.paginate !== undefined && typeof value.layout.paginate !== "boolean") diagnostics.error("INVALID_CONFIG_TYPE", "layout.paginate must be boolean.", locationFor(source, file, 0));
+  if (value.citation?.heading?.level !== undefined && (!Number.isInteger(value.citation.heading.level) || value.citation.heading.level < 1 || value.citation.heading.level > 6)) diagnostics.error("INVALID_HEADING_LEVEL", "citation.heading.level must be an integer from 1 to 6.", locationFor(source, file, 0));
   const language = value.meta?.language;
   if (language !== undefined && language !== "en" && language !== "ja") {
     diagnostics.error("UNSUPPORTED_LANGUAGE", "Only en and ja are supported in phase 1.", locationFor(source, file, 0));
@@ -164,6 +166,7 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   if (root && value.network?.allow === true && (!Array.isArray(value.network.domains) || value.network.domains.length === 0)) {
     diagnostics.error("EMPTY_NETWORK_ALLOWLIST", "network.allow requires a non-empty domains list.", locationFor(source, file, 0));
   }
+  if (value.network?.domains !== undefined && (!Array.isArray(value.network.domains) || value.network.domains.some((domain: unknown) => typeof domain !== "string"))) diagnostics.error("INVALID_NETWORK_DOMAINS", "network.domains must be a list of strings.", locationFor(source, file, 0));
   validateMargins(value.layout?.margins, file, source, diagnostics);
   validateLayout(value.layout, file, source, diagnostics);
   validateCommands(value.command, file, source, diagnostics);
@@ -181,7 +184,7 @@ function validateMargins(value: unknown, file: string, source: string, diagnosti
 
 function validateLayout(layout: Record<string, any> | undefined, file: string, source: string, diagnostics: Diagnostics): void {
   if (!isRecord(layout)) return;
-  const depthValues = [layout.heading?.numberingDepth, layout.heading?.tocDepth, layout.counter?.maxDepth];
+  const depthValues = [layout.heading?.numberingDepth ?? layout.heading?.["numbering-depth"], layout.heading?.tocDepth ?? layout.heading?.["toc-depth"], layout.counter?.maxDepth ?? layout.counter?.["max-depth"]];
   for (const depth of depthValues) {
     if (depth !== undefined && (!Number.isInteger(depth) || depth < 0)) {
       diagnostics.error("INVALID_DEPTH", "Counter and heading depths must be non-negative integers.", locationFor(source, file, 0));

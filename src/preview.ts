@@ -55,7 +55,7 @@ export function startPreview(options: PreviewOptions): Promise<void> {
     for (const watcher of watchers) watcher.close();
     watchedKey = key;
     allowedAssets = new Set(files.filter((file) => file !== input));
-    watchers = files.map((file) => fs.watch(file, () => schedule()));
+    watchers = files.map((file) => fs.watch(file, (eventType) => { if (eventType === "rename") watchedKey = ""; schedule(); }));
   };
   const build = () => {
     if (building) { pending = true; return; }

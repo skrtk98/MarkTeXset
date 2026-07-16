@@ -269,14 +269,19 @@ export function compile(source: string, file = "document.md"): CompileResult {
   let html = addHeadingNumbers(md.render(prepared.text), loaded.config);
   for (const [key, value] of prepared.replacements) html = html.split("<p>" + key + "</p>").join(value).split(key).join(value);
   const tocCount = (loaded.body.match(/<maketoc\s*\/>/g) ?? []).length;
+  const titleCount = (loaded.body.match(/<maketitle\s*\/>/g) ?? []).length;
   const referencesCount = (loaded.body.match(/<references\s*\/>/g) ?? []).length;
   if (tocCount > 1) diagnostics.warning("DUPLICATE_TOC", "Only the first <maketoc /> is used.");
+  if (titleCount > 1) diagnostics.warning("DUPLICATE_TITLE", "Only the first <maketitle /> is used.");
   if (referencesCount > 1) diagnostics.warning("DUPLICATE_REFERENCES", "Only the first <references /> is used.");
   if (/<maketitle\s*\/>/.test(loaded.body)) {
     if (!loaded.config.meta?.title) diagnostics.warning("MISSING_TITLE", "<maketitle /> requires meta.title.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketitle\"><\/div>/, renderTitle(loaded.config));
   }
-  html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
+  if (tocCount > 0) {
+    if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
+    html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
+  }
   const numbers = new Map<string, number>();
   let nextNumber = 1;
   html = html.replace(/\[@([^\]]+)\]/g, (_m, keys: string) => {
