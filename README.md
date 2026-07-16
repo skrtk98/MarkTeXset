@@ -16,12 +16,15 @@ npm run check
 ## CLI
 
 ```bash
-npm start -- input.md -o output.html
-npm start -- input.md --format json
+npm start -- build input.md -o output.html
+npm start -- build input.md --format json
 npm start -- preview input.md --port 3000 --host 127.0.0.1
+npm start -- init docs/article --language ja
 ```
 
 `--format json` は診断情報を stdout に出力する。通常の診断は stderr、変換結果は stdout または `-o` で指定したファイルに出力する。
+
+サブコマンドなしの旧形式は使用せず、`build`、`preview`、`init` のいずれかを明示する。
 
 ### ローカルプレビュー
 
@@ -35,26 +38,19 @@ marktexset preview document.md
 
 ## 最小例
 
+動作確認用の完全な最小例は [examples/minimal.en.md](examples/minimal.en.md) と [examples/minimal.ja.md](examples/minimal.ja.md) に同梱している。
+
+`init` は空本文の初期文書を作成する。
+
 ```markdown
 ---
 mathmd:
   meta:
-    language: ja
-  layout:
-    callouts:
-      theorem:
-        title: "定理 {theorem.arabic}."
-        style: plain
+    language: en
+    title: "Untitled document"
+    author: []
+    date: null
 ---
-
-# 数学文書
-
-ピタゴラスの定理を示す。
-
-> [!theorem] ピタゴラスの定理
-> $$a^2+b^2=c^2$$
-
-<maketoc />
 ```
 
 ## 実装状況
