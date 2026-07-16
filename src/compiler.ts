@@ -182,7 +182,13 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
     }
     output.push(line);
   }
-  const commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
+  const footnoteDefinitions = new Set([...source.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+  let commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
+  commentSafeSource = commentSafeSource.replace(/\[\^([^\]]+)\]/g, (match, label: string) => {
+    if (footnoteDefinitions.has(label)) return match;
+    diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
+    return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
+  });
   const protectedMath = protectMath(commentSafeSource, config, diagnostics, ids, references);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
   return { text: protectedMath.text, replacements, ids, references };
@@ -278,7 +284,7 @@ function renderToc(html: string): string {
     const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a>" : match[3];
     return "<li class=\"toc-level-" + match[1] + "\">" + title + "</li>";
   }).join("");
-  return "<nav class=\"table-of-contents\"><ol>" + items + "</ol></nav>";
+  return "<nav class=\"table-of-contents\"><ul class=\"toc-list\">" + items + "</ul></nav>";
 }
 
 function resolveReferences(html: string, references: Map<string, string>, diagnostics: Diagnostics): string {
@@ -335,13 +341,8 @@ export function compile(source: string, file = "document.md"): CompileResult {
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html));
   }
   html = resolveReferences(html, prepared.references, diagnostics);
-  const footnoteDefinitions = new Set([...loaded.body.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
-  for (const match of loaded.body.matchAll(/\[\^([^\]]+)\]/g)) {
-    if (!footnoteDefinitions.has(match[1])) diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + match[1] + "' is not defined.");
-  }
-  html = html.replace(/\[\^([^\]]+)\]/g, (_match, label: string) => footnoteDefinitions.has(label) ? _match : "<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-list{list-style:none;padding-left:0}.document-title{text-align:center;margin-bottom:2em}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

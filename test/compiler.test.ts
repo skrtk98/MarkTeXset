@@ -85,6 +85,12 @@ test("rejects duplicate IDs and citations without a references directive", () =>
   for (const item of result.diagnostics.items) assert.ok(item.location);
 });
 
+test("renders an unresolved footnote without consuming a footnote number or link", () => {
+  const result = compile("A missing footnote.[^missing]\n");
+  assert.match(result.html, /diagnostic-missing[^>]*>\[\^missing\]/);
+  assert.doesNotMatch(result.html, /footnote-ref/);
+});
+
 test("control tags are self-closing HTML elements in the source language", () => {
   const result = compile("<maketoc />\n\n<pagebreak />\n\n<pagestyle name=\"empty\" />\n");
   assert.equal(result.diagnostics.hasErrors, false);

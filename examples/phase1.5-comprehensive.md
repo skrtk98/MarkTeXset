@@ -122,7 +122,7 @@ $x$ is intentionally code here
 > The macro `\abs{x}` represents $\abs{x}$.
 
 > [!remark] A remark
-> This is an unnumbered remark-style environment.
+> This is a remark-style environment.
 
 > [!proof]
 > The proof contains inline math $x=x$ and receives an automatic square.
