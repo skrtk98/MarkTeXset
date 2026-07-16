@@ -142,6 +142,7 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
     diagnostics.error("UNSUPPORTED_PAGE_SIZE", "Only A4 is supported in phase 1.", locationFor(source, file, 0));
   }
   if (value.layout?.paginate !== undefined && typeof value.layout.paginate !== "boolean") diagnostics.error("INVALID_CONFIG_TYPE", "layout.paginate must be boolean.", locationFor(source, file, 0));
+  if (value.layout?.heading?.toc !== undefined && typeof value.layout.heading.toc !== "string") diagnostics.error("INVALID_CONFIG_TYPE", "layout.heading.toc must be a string.", locationFor(source, file, 0));
   if (value.citation?.heading?.level !== undefined && (!Number.isInteger(value.citation.heading.level) || value.citation.heading.level < 1 || value.citation.heading.level > 6)) diagnostics.error("INVALID_HEADING_LEVEL", "citation.heading.level must be an integer from 1 to 6.", locationFor(source, file, 0));
   const language = value.meta?.language;
   if (language !== undefined && language !== "en" && language !== "ja") {
