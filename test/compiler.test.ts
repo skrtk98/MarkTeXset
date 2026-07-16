@@ -18,6 +18,12 @@ test("renders CommonMark, MathJax math, headings, and callouts", () => {
   assert.match(result.html, /callout-plain/);
 });
 
+test("renders inline and block math inside Callouts", () => {
+  const result = compile("> [!theorem] A theorem\n> Inline $x^2$ and:\n>\n> $$a^2+b^2=c^2$$\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.ok((result.html.match(/MathJax/g) ?? []).length >= 2);
+});
+
 test("supports root YAML, imports, last-wins values, and equation labels", () => {
   const source = "---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    margins: 0mm\n    equation:\n      numbered: true\n---\n\n$$x \\label{eq:x}$$\n";
   const result = compile(source, "/tmp/document.md");

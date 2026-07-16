@@ -46,7 +46,9 @@ function renderCallout(name: string, body: string, config: Config, counters: Map
   if (/!\[[^\]]*\]\([^)]*\)/.test(body)) diagnostics.error("CALLOUT_IMAGE", "Images are not supported inside a Callout.");
   if (/(^|\n)\s*\|.*\|/.test(body)) diagnostics.error("CALLOUT_TABLE", "Tables are not supported inside a Callout.");
   if (/(^|\n)\s*\[\^[^\]]+\]:/.test(body)) diagnostics.error("CALLOUT_FOOTNOTE_DEFINITION", "Footnote definitions are not supported inside a Callout.");
-  const content = md.render(body.trim() + "\n");
+  const protectedBody = protectMath(body.trim() + "\n", config, diagnostics, ids, references);
+  let content = md.render(protectedBody.text);
+  for (const [key, value] of protectedBody.values) content = content.split("<p>" + key + "</p>").join(value).split(key).join(value);
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
   return "<div" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"" + classAttribute + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
@@ -220,7 +222,7 @@ function bibliography(config: Config, body: string, diagnostics: Diagnostics, fi
   const unique = [...new Set(cited)];
   const html = unique.map((key, index) => {
     const entry = entries.get(key);
-    if (!entry) { diagnostics.warning("MISSING_CITATION", "Citation key '" + key + "' is not present in the bibliography."); return "<li><b class=\"diagnostic-missing\">[" + escapeHtml(key) + "]</b></li>"; }
+    if (!entry) return "<li><b class=\"diagnostic-missing\">[" + escapeHtml(key) + "]</b></li>";
     return "<li id=\"ref-" + escapeHtml(key) + "\">[" + (index + 1) + "] " + escapeHtml(String(entry.title ?? key)) + (entry.url ? " <a href=\"" + escapeHtml(entry.url) + "\">" + escapeHtml(entry.url) + "</a>" : "") + "</li>";
   }).join("");
   const heading = config.citation.heading;

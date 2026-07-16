@@ -1,0 +1,6 @@
+layout:
+  heading:
+    toc-depth: 3
+network:
+  domains:
+    - example.com

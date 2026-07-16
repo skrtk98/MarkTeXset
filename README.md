@@ -40,6 +40,8 @@ marktexset preview document.md
 
 動作確認用の完全な最小例は [examples/minimal.en.md](examples/minimal.en.md) と [examples/minimal.ja.md](examples/minimal.ja.md) に同梱している。
 
+フェーズ1.5の記法を網羅した調査用サンプルは [examples/phase1.5-comprehensive.md](examples/phase1.5-comprehensive.md) である。import設定、画像、文献データ、ローカル資産も同じ `examples/` 配下に置いている。
+
 `init` は空本文の初期文書を作成する。
 
 ```markdown
