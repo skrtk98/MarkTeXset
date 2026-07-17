@@ -231,6 +231,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
 function renderMarkdownBody(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
   const prepared = preprocess(source, config, diagnostics, context);
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist);
+  md.block.ruler.disable("code");
   let content = md.render(prepared.text);
   content = content.replace(/<table>/g, "<table class=\"mathmd-table\">");
   content = content.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");

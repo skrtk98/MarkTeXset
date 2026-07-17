@@ -124,6 +124,13 @@ test("renders phase-three markdown extensions", () => {
   assert.match(result.html, /<dt>Term<\/dt>/);
 });
 
+test("does not support four-space indented code blocks", () => {
+  const result = compile("    indented code\n    x = 1\n\n```text\nfenced code\n```");
+  assert.doesNotMatch(result.html, /<pre><code>indented code/);
+  assert.match(result.html, /<p>indented code\nx = 1<\/p>/);
+  assert.match(result.html, /<pre><code class=\"language-text\">fenced code/);
+});
+
 test("allows rich Callout contents and nested Callouts", () => {
   const result = compile("> [!remark] Outer\n> > [!proof]\n> > Inner `code`\n> >\n> > | A | B |\n> > |---|---|\n> > | 1 | 2 |\n> >\n> > [^inside]\n> >\n> > [^inside]: Nested note\n");
   assert.equal(result.diagnostics.hasErrors, false);
