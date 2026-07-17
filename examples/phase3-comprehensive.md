@@ -1,5 +1,7 @@
 ---
 mathmd:
+  import:
+    - phase1.5-import.yaml
   meta:
     language: en-US
     timezone: UTC
@@ -37,6 +39,15 @@ mathmd:
       h1: "{h1.arabic}."
       h2: "{h1.arabic}.{h2.arabic}."
       h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}."
+    counter:
+      max-depth: 3
+    footnote:
+      format: "{footnote.arabic}"
+      placement: bottom
+    equation:
+      numbered: true
+      display: "({equation.arabic})"
+      reference: "Equation ({equation.arabic})"
     figure:
       numbered: true
       display: "Figure {figure.arabic}."
@@ -45,9 +56,24 @@ mathmd:
       theorem:
         title: "Theorem {theorem.arabic}."
         style: plain
+      definition:
+        title: "Definition {definition.arabic}."
+        style: definition
+      remark:
+        title: "Remark {remark.arabic}."
+        style: remark
       proof:
         title: "Proof"
         style: proof
+  command:
+    macros:
+      abs:
+        args: 1
+        body: "\\left|#1\\right|"
+    operators:
+      rank:
+        text: "rank"
+        limits: false
 ---
 
 <maketitle />
@@ -55,12 +81,46 @@ mathmd:
 
 # Phase 3 overview
 
-この文書はフェーズ3の全要素を確認する。引用は [@knuth1984; @lamport1994] とし、図は [](#fig:phase3-asset) で参照する。
+この文書はフェーズ1〜3の累積要素を確認する。引用は [@knuth1984; @lamport1994] とし、図は [](#fig:phase3-asset) で参照する。**太字**、*斜体*、`インラインコード`、[外部リンク](https://example.com)も含む。脚注も確認する[^overview-note]。
 
 ~~この文章は取り消し線で表示される。~~
 
 - [ ] 未完了のタスク
 - [x] 完了したタスク
+
+- unordered item
+- another unordered item
+
+1. ordered item
+2. another ordered item
+
+> A normal block quote remains distinct from a Callout.
+
+    indented code block
+    x = 1
+
+```markdown
+[internal link](#phase3-theorem) uses standard Markdown fragment syntax.
+```
+
+## Equations and internal references
+
+Inline math $\frac{a}{b}$, $\sqrt{x}$, $\mathbb{R}$, $\mathcal{F}$, $\mathrm{d}x$, $\operatorname{rank}(A)$, and the configured macro $\abs{x}$ are supported.
+
+$$
+a & = b + c \label{eq:phase3-first} \\
+d && = e + f \notag \\
+g & = h \label{eq:phase3-second}
+$$
+
+The first equation is [the first equation](#eq:phase3-first), and the second is [](#eq:phase3-second).
+
+#: Numberless section
+
+## Background
+
+The numberless heading does not increment its counter; this lower heading still follows the normal hierarchy.
+An unresolved footnote [^missing] is rendered as a red diagnostic without a link.
 
 ## Description list
 
@@ -107,12 +167,20 @@ Phase 3
 > [!proof]
 > The proof Callout also supports inline math $x^2+y^2$ and ends with an automatic square.
 
+> [!definition] Absolute value {#phase3-definition}
+> The configured `definition` style and macro $\abs{x}$ are available.
+
+> [!remark] A remark
+> The configured `remark` style is also available.
+
 ## Citations and final layout
 
-The author-year citations should render as (Knuth, 1984) and (Lamport and Doe, 1994). URLs in the bibliography are links, and authors are displayed on separate lines.
+The author-year citations should render as (Knuth, 1984) and (Lamport and Doe, 1994). The missing key [@missing-key] remains visibly diagnosable. URLs in the bibliography are links, and authors are displayed on separate lines.
 
 <pagestyle name="plain" />
 
 <pagebreak />
 
 <references />
+
+[^overview-note]: A defined footnote used by the cumulative phase sample.
