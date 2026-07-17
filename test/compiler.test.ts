@@ -103,11 +103,13 @@ test("validates nested configuration keys and timezones", () => {
   assert.ok(codes.includes("INVALID_TIMEZONE"));
 });
 
-test("numbers multiline equations per row and supports code blocks in Callouts", () => {
-  const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b\\\\c&=d \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
+test("numbers multiline equations per row, preserves alignment gaps, and supports code blocks in Callouts", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b&&c&=d \\label{eq:first}\\\\e&=f&&g&=h \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
   assert.equal((result.html.match(/class="equation-number"/g) ?? []).length, 1);
-  assert.match(result.html, /class="equation-content"/);
-  assert.match(result.html, /\.equation-row\{display:grid/);
+  assert.equal((result.html.match(/class="equation-content/g) ?? []).length, 10);
+  assert.match(result.html, /equation-content math-anchor-gap/);
+  assert.match(result.html, /\.math-block\{display:table/);
+  assert.match(result.html, /\.equation-row\{display:table-row/);
   assert.match(result.html, /mjx-assistive-mml\{position:absolute/);
   assert.match(result.html, /<pre><code class="language-js">code/);
   assert.doesNotMatch(result.html, /CALLOUT_CODE_BLOCK/);
