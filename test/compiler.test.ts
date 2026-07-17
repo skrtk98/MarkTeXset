@@ -85,6 +85,16 @@ test("falls back unsupported phase-three languages and rejects invalid counter p
   assert.ok(codes.includes("INVALID_COUNTER_TEMPLATE"));
 });
 
+test("accepts BCP 47 language tags and falls back unsupported tags to English", () => {
+  const japanese = loadConfig("---\nmathmd:\n  meta:\n    language: ja-JP\n---\ntext", "document.md", new Diagnostics());
+  assert.equal(japanese.config.meta.language, "ja-JP");
+
+  const diagnostics = new Diagnostics();
+  const french = loadConfig("---\nmathmd:\n  meta:\n    language: fr-FR\n---\ntext", "document.md", diagnostics);
+  assert.equal(french.config.meta.language, "en");
+  assert.ok(diagnostics.items.some((item) => item.code === "UNSUPPORTED_LANGUAGE_FALLBACK"));
+});
+
 test("validates nested configuration keys and timezones", () => {
   const diagnostics = new Diagnostics();
   loadConfig("---\nmathmd:\n  meta:\n    timezone: Not/AZone\n    typo: true\n  layout:\n    heading:\n      unknown: true\n---\ntext", "document.md", diagnostics);
