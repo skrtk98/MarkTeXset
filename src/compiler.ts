@@ -88,13 +88,14 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
     try {
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
       const rows = renderMultilineMath(body);
-      const rendered = rows.map((row) => {
+      const maxCells = Math.max(1, ...rows.map((row) => (row.source ?? "").includes("&") ? (row.source ?? "").split("&").length : 1));
+      const rendered = rows.map((row, rowIndex) => {
         const label = row.labels[0];
         const notag = /\\notag\b/.test(row.source ?? "");
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
         const numberValue = numbered && !notag ? ++equation : 0;
-        const number = numberValue ? " <span class=\"equation-number\">(" + numberValue + ")</span>" : "";
+        const number = numberValue ? "<span class=\"equation-number\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">(" + numberValue + ")</span>" : "";
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
@@ -105,15 +106,16 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
         if (rowSource.includes("&")) {
           const cells = rowSource.split("&");
           mathHtml = cells.map((cell, index) => {
-            if (!cell.trim()) return "<span class=\"equation-content math-anchor-gap\"></span>";
-      try { return "<span class=\"equation-content math-anchor-" + (index % 2 ? "left" : "right") + "\">" + renderMath(expandMacros(cell, config), true).html + "</span>"; }
+            const style = "grid-column:" + (index + 2) + ";grid-row:" + (rowIndex + 1) + ";";
+            if (!cell.trim()) return "<span class=\"equation-content math-anchor-gap\" style=\"" + style + "\"></span>";
+      try { return "<span class=\"equation-content math-anchor-" + (index % 2 ? "left" : "right") + "\" style=\"" + style + "\">" + renderMath(expandMacros(cell, config), true).html + "</span>"; }
             catch { return "<span class=\"math-error\">[math error]</span>"; }
           }).join("");
         }
-        if (!rowSource.includes("&")) mathHtml = "<span class=\"equation-content math-anchor-center\">" + mathHtml + "</span>";
+        if (!rowSource.includes("&")) mathHtml = "<span class=\"equation-content math-anchor-center\" style=\"grid-column:2;grid-row:" + (rowIndex + 1) + ";\">" + mathHtml + "</span>";
         return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + mathHtml + number + "</div>";
       }).join("");
-      return put("<div class=\"math-block\">" + rendered + "</div>");
+      return put("<div class=\"math-block\" style=\"grid-template-columns:1fr repeat(" + maxCells + ",max-content) 1fr max-content;\">" + rendered + "</div>");
     } catch (error) {
       diagnostics.error("MATH_RENDER", String(error));
       return put("<div class=\"math-block math-error\">[math error]</div>");
@@ -431,7 +433,7 @@ export function compile(source: string, file = "document.md"): CompileResult {
   }
   html = resolveReferences(html, context.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{padding-left:2em;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.reference-author{display:inline-block}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:table;width:100%;border-collapse:separate;border-spacing:0}.equation-row{display:table-row;min-height:1.5em}.equation-content{display:table-cell;vertical-align:baseline;white-space:nowrap}.equation-number{display:table-cell;text-align:right;vertical-align:baseline;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{display:table-cell;min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{padding-left:2em;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.reference-author{display:inline-block}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

@@ -108,8 +108,8 @@ test("numbers multiline equations per row, preserves alignment gaps, and support
   assert.equal((result.html.match(/class="equation-number"/g) ?? []).length, 1);
   assert.equal((result.html.match(/class="equation-content/g) ?? []).length, 10);
   assert.match(result.html, /equation-content math-anchor-gap/);
-  assert.match(result.html, /\.math-block\{display:table/);
-  assert.match(result.html, /\.equation-row\{display:table-row/);
+  assert.match(result.html, /\.math-block\{display:grid/);
+  assert.match(result.html, /\.equation-row\{display:contents/);
   assert.match(result.html, /mjx-assistive-mml\{position:absolute/);
   assert.match(result.html, /<pre><code class="language-js">code/);
   assert.doesNotMatch(result.html, /CALLOUT_CODE_BLOCK/);
