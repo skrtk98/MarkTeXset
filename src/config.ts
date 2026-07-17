@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: Config = {
     },
     counter: { maxDepth: 3 },
     footnote: { format: "{footnote.arabic}", placement: "bottom" },
+    figure: { numbered: true, display: "Figure {figure.arabic}.", reference: "Figure {figure.arabic}" },
     equation: { numbered: false, display: "({equation.arabic})", reference: "式 ({equation.arabic})" },
     callouts: {},
   },
@@ -106,7 +107,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.citation, ["style", "heading"], "citation", file, source, diagnostics);
   unknownNested(value.citation?.heading, ["text", "level"], "citation.heading", file, source, diagnostics);
   unknownNested(value.network, ["allow", "domains"], "network", file, source, diagnostics);
-  unknownNested(value.layout, ["class", "size", "margins", "paginate", "page", "title", "heading", "counter", "footnote", "equation", "callouts"], "layout", file, source, diagnostics);
+  unknownNested(value.layout, ["class", "size", "margins", "paginate", "page", "title", "heading", "counter", "footnote", "equation", "figure", "callouts"], "layout", file, source, diagnostics);
   unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
   unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
   unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
@@ -115,6 +116,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.counter, ["max-depth", "maxDepth"], "layout.counter", file, source, diagnostics);
   unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
   unknownNested(value.layout?.equation, ["numbered", "display", "reference"], "layout.equation", file, source, diagnostics);
+  unknownNested(value.layout?.figure, ["numbered", "display", "reference"], "layout.figure", file, source, diagnostics);
   if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style"], "layout.callouts." + name, file, source, diagnostics);
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
   if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
@@ -145,8 +147,16 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   if (value.layout?.heading?.toc !== undefined && typeof value.layout.heading.toc !== "string") diagnostics.error("INVALID_CONFIG_TYPE", "layout.heading.toc must be a string.", locationFor(source, file, 0));
   if (value.citation?.heading?.level !== undefined && (!Number.isInteger(value.citation.heading.level) || value.citation.heading.level < 1 || value.citation.heading.level > 6)) diagnostics.error("INVALID_HEADING_LEVEL", "citation.heading.level must be an integer from 1 to 6.", locationFor(source, file, 0));
   const language = value.meta?.language;
-  if (language !== undefined && language !== "en" && language !== "ja") {
-    diagnostics.error("UNSUPPORTED_LANGUAGE", "Only en and ja are supported in phase 1.", locationFor(source, file, 0));
+  if (language !== undefined) {
+    try {
+      const tag = String(language);
+      new Intl.Locale(tag);
+      if (!/^en(?:-|$)/i.test(tag) && !/^ja(?:-|$)/i.test(tag)) {
+        diagnostics.warning("UNSUPPORTED_LANGUAGE_FALLBACK", "Language '" + tag + "' is not supported; falling back to en.", locationFor(source, file, 0));
+      }
+    } catch {
+      diagnostics.error("INVALID_LANGUAGE_TAG", "Invalid BCP 47 language tag '" + language + "'.", locationFor(source, file, 0));
+    }
   }
   if (value.meta?.timezone !== undefined) {
     try { new Intl.DateTimeFormat("en-US", { timeZone: String(value.meta.timezone) }).format(); }
@@ -157,10 +167,10 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   }
   if (typeof value.layout?.title?.["date-format"] === "string" || typeof value.layout?.title?.dateFormat === "string") {
     const dateFormat = value.layout.title["date-format"] ?? value.layout.title.dateFormat;
-    if (!/^(?:yyyy|mm|dd|[-/ .])+$/.test(String(dateFormat))) diagnostics.error("INVALID_DATE_FORMAT", "Date format may only contain yyyy, mm, dd, and separators.", locationFor(source, file, 0));
+    if (!/^(?:yyyy|yy|MMMM|MMM|MM|M|mm|m|dd|d|[-/ .,:'T])+$/.test(String(dateFormat))) diagnostics.error("INVALID_DATE_FORMAT", "Date format contains unsupported tokens.", locationFor(source, file, 0));
   }
-  if (value.citation?.style !== undefined && value.citation.style !== "numeric") {
-    diagnostics.error("UNSUPPORTED_CITATION_STYLE", "Only numeric citation style is supported in phase 1.", locationFor(source, file, 0));
+  if (value.citation?.style !== undefined && !["numeric", "author-year"].includes(String(value.citation.style))) {
+    diagnostics.error("UNSUPPORTED_CITATION_STYLE", "Citation style must be numeric or author-year.", locationFor(source, file, 0));
   }
   if (value.network?.allow !== undefined && !root) {
     diagnostics.error("IMPORT_NETWORK_ALLOW", "network.allow may only be set in the root Frontmatter.", locationFor(source, file, 0));
@@ -327,6 +337,10 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
 }
 
 function normalizeConfig(config: Config): void {
+  const language = String(config.meta?.language ?? "en");
+  if (!/^en(?:-|$)/i.test(language) && !/^ja(?:-|$)/i.test(language)) config.meta.language = "en";
+  else if (/^ja(?:-|$)/i.test(language)) config.meta.language = language;
+  else config.meta.language = language;
   const heading = config.layout.heading;
   heading.numberingDepth = heading["numbering-depth"] ?? heading.numberingDepth ?? 3;
   heading.tocDepth = heading["toc-depth"] ?? heading.tocDepth ?? 3;
