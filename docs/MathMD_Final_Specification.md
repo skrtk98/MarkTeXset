@@ -237,6 +237,8 @@ layout:
 
 カウンター形式は `arabic`、`roman`、`Roman`、`alph`、`Alph`。`{h1 > theorem.arabic}` のようなスコープを許可し、要素数が `layout.counter.max-depth` を超えたらエラー。未知カウンター・未知形式はエラー。
 
+Callout の `title` は YAML の文字列を CommonMark のインライン構文として解釈する。太字、斜体、取り消し線、リンク、コード、エスケープ、インライン数式 `$...$` を許可し、生 HTML とブロック構文は許可しない。カウンタープレースホルダーは Markdown 解釈前に展開する。生成 HTML の `.callout`、`.callout-title`、`.callout-body`、`.callout-<environment>` は安定した公開クラスとする。
+
 ## 7. ID、相互参照、引用
 
 数式 `\label{eq:quadratic}`、Heading Attribute の ID、Callout の ID は同一名前空間を共有し、重複 ID はエラーとする。内部参照は標準 Markdown の fragment link に統一する。
@@ -262,17 +264,79 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 
 マクロ・演算子・組み込みコマンドは同じ TeX コマンド名前空間で扱う。マクロは args 0〜4、オプション引数なし。組み込みを置き換える場合のみ `redef: true` を許可し、既定値は false。limits の既定値は false。
 
-## 9. 脚注
+## 9. 表と装飾
+
+### 9.1 表構造
+
+フェーズ1では GFM 互換テーブルを扱い、最終フェーズでは `markdown-it-multimd-table` の標準記法を採用して `rowspan` / `colspan` によるセル結合を許可する。MathMD 独自のセル結合記法は追加しない。結合範囲、列数、行数が不正な場合はコンパイルエラーとする。
+
+生成表には `.mathmd-table` を付与し、`table`、`thead`、`tbody`、`tr`、`th`、`td` とともに安定した公開HTML APIとする。セルに `data-row` / `data-col` は付与しない。セル単位の指定は標準CSSの `nth-child()` など、結合後の実DOM上のセル順を対象にする。結合セルの論理座標を自動補正しない。
+
+### 9.2 global / scoped style
+
+最終フェーズでは、構造と装飾を分離するため、トップレベルに次のstyleブロックを許可する。
+
+```html
+<style>
+.mathmd-table {
+  border-collapse: collapse;
+}
+</style>
+
+<style scoped>
+tbody tr:nth-child(n+3):nth-child(-n+5) td:nth-child(2) {
+  border-top: 3px double;
+  text-align: right;
+  vertical-align: middle;
+}
+</style>
+
+| A | B |
+|---|---|
+| 1 | 2 |
+```
+
+- `<style>` は文書全体に適用する。
+- `<style scoped>` は直後の1ブロック要素をスコープルートとし、`@scope` 相当で適用する。`:scope` はルート自身を表す。
+- Callout 内部にはstyleブロックを置かない。Calloutを装飾する場合は、Callout直前のトップレベル `style scoped` から `.callout-title` などの子孫を指定する。
+- `<maketitle />`、`<maketoc />`、`<references />`などの制御タグ直前の scoped style は、展開後の生成要素を対象にできる。
+- 連続する複数の scoped style は、すべて直後の同じ要素へ適用する。
+- global / scoped ともCSS標準のcascade、詳細度、cascade layer、記述順に従う。scopedを常に優先する独自規則や `!important` による強制上書きは追加しない。scope proximity はCSS標準に従う。
+- CSSの標準セレクタ・プロパティを許可する。セルの水平・垂直配置、水平・垂直罫線、一重・二重・太線、色、幅、範囲指定はCSSで表現する。隣接セルの共有罫線が競合した場合もCSS標準の罫線衝突解決に従う。
+- styleブロックは文書コンテンツだけに適用し、PreviewのDiagnosticsなど内部UIには適用しない。Preview内部UIはShadow DOMで隔離する。
+- PreviewとPDFは同じ装飾結果を検査対象とする。表にstyle指定がない場合、罫線・背景色などの装飾を自動付与しない。
+
+styleブロックはトップレベルの制御構文として扱い、生HTMLの任意要素は引き続き許可しない。CSS構文エラー、不正なCSS資産参照、存在しないCSS資産はエラーとし、複数エラーを収集して診断JSONへ列挙する。未知のCSSプロパティはブラウザのCSS標準解釈に委ねる。
+
+### 9.3 CSSファイル
+
+YAMLでCSSファイルを次のように指定できる。
+
+```yaml
+mathmd:
+  style:
+    import:
+      - styles/base.css
+      - styles/theorem.css
+```
+
+`mathmd.style.import` は指定順に読み込み、同じファイルは一度だけ読む。CSSファイル内の `@import` は禁止し、再帰的CSS importは許可しない。指定CSSはMarkdownファイル基準の相対パスまたは絶対パスを許可し、`../` による親ディレクトリ参照は禁止する。外部URLは許可しない。CSS内のローカル `url()` はCSSファイル自身のディレクトリ基準で解決し、同じパス規則を適用する。CSSをHTMLへインライン展開し、ローカル `url()` は出力HTML基準へ書き換える。
+
+### 9.4 受け入れ対象
+
+最終フェーズの正常系・異常系・レイアウト系テストには、表のセル単位の水平・垂直配置、`nth-child()`による行・列範囲指定、一重・二重・太線・色付き罫線、セル結合、不正結合エラー、global / scoped のcascade、YAML指定CSS、ローカルCSS資産、CSS構文エラー、定理タイトルのMarkdown装飾、タイトル内カウンタープレースホルダーとインライン数式、PreviewとPDFの一致を含める。
+
+## 10. 脚注
 
 脚注は arabic 番号で各ページ下部に配置する。同一定義の重複はエラー。フェーズ1では Callout 内の脚注定義を禁止する。未定義脚注参照は警告し、`[^missing]` 全体を赤太字で表示し、リンクと番号は生成しない。
 
-## 10. 診断、フォント、ネットワーク
+## 11. 診断、フォント、ネットワーク
 
 診断メッセージは英語固定。JSON の必須フィールドは `severity`、`code`、`message`、`location.file`、`location.start`、`location.end`。位置は Unicode code point の1始まり、`end` は排他的。診断順はエラー、警告の順にし、各グループ内は文書位置順とする。候補表示は編集距離2以下・最大3件。
 
 既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
-## 11. 実装計画
+## 12. 実装計画
 
 ### フェーズ1 — 基本 HTML コンパイラ（実装済み）
 
@@ -337,10 +401,20 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 - `mathbf`、`mathsf`、`mathtt` 等の追加フォント
 - 最終的に任意 HTML 属性を安全な許可リスト方式で提供
 
+### 最終フェーズ — 表装飾・文書スタイル・定理タイトル
+
+- `markdown-it-multimd-table` の標準記法による `rowspan` / `colspan` セル結合と不正結合エラー
+- `.mathmd-table` など安定した公開クラスと、標準CSSによる表のセル配置・罫線・範囲装飾
+- トップレベルのglobal / scoped style、`@scope`相当のスコープ、制御タグ・Calloutを含む全生成要素への適用
+- `mathmd.style.import` によるローカルCSS読み込み、CSSの非再帰import禁止、ローカル資産の解決とHTMLへのインライン展開
+- CSS標準のcascade・詳細度・scope proximity・罫線衝突解決、Shadow DOMによるPreview内部UI隔離
+- YAMLのCallout `title`におけるCommonMarkインラインMarkdownとインライン数式、カウンタープレースホルダーの事前展開
+- 表装飾、style診断、定理タイトル装飾、Preview/PDF一致の1機能1文書テストと期待診断JSON
+
 ### 各フェーズの完了条件
 
 各機能について正常系・異常系・レイアウト系を分離し、1機能1文書と期待診断 JSON を用意する。診断の severity、code、位置情報、終了コードは完全一致、message は部分一致とする。画像差分は参考値として記録するだけで合否判定には使わない。日付、タイムゾーン、外部リソースのキャッシュをテストで固定する。
 
-## 12. 仕様変更手順
+## 13. 仕様変更手順
 
 仕様変更はこの文書を直接更新し、実装・テスト・README を同一の意味ある変更単位で更新する。過去版を確認する必要がある場合のみ `docs/old/` を参照する。新しい仕様を採用した場合は、旧仕様との互換性を暗黙に仮定せず、必要な移行診断とテストを追加する。
