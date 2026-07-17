@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
+import taskLists from "markdown-it-task-lists";
+import deflist from "markdown-it-deflist";
 import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { renderMath, renderMultilineMath } from "./math.js";
@@ -10,6 +12,14 @@ export interface CompileResult {
   html: string;
   config: Config;
   diagnostics: Diagnostics;
+}
+
+interface RenderContext {
+  counters: Map<string, number>;
+  ids: Set<string>;
+  references: Map<string, string>;
+  figures: number;
+  sourceFile: string;
 }
 
 const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -42,7 +52,7 @@ function counterText(template: string, name: string, value: number): string {
   });
 }
 
-function renderCallout(name: string, body: string, config: Config, counters: Map<string, number>, id: string | undefined, classes: string[], ids: Set<string>, references: Map<string, string>, diagnostics: Diagnostics): string {
+function renderCallout(name: string, body: string, config: Config, context: RenderContext, id: string | undefined, classes: string[], diagnostics: Diagnostics): string {
   const definitions = config.layout.callouts ?? {};
   const definition = definitions[name] ?? { title: name, style: "plain" };
   const style = ["plain", "definition", "remark", "proof"].includes(definition.style) ? definition.style : "plain";
@@ -50,24 +60,16 @@ function renderCallout(name: string, body: string, config: Config, counters: Map
   const numbered = /\{[^}]+\}/.test(title);
   let renderedTitle = title;
   if (numbered) {
-    const current = (counters.get(name) ?? 0) + 1;
-    counters.set(name, current);
+    const current = (context.counters.get(name) ?? 0) + 1;
+    context.counters.set(name, current);
     renderedTitle = counterText(title, name, current);
   }
   if (id) {
-    if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
-    ids.add(id);
-    references.set(id, renderedTitle);
+    if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
+    context.ids.add(id);
+    context.references.set(id, renderedTitle);
   }
-  const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
-  if (/^\s*>?\s*\[!/.test(body)) diagnostics.error("NESTED_CALLOUT", "Nested Callouts are not supported inside a Callout.");
-  if (/(^|\n)\s*(```|~~~|    )/.test(body)) diagnostics.error("CALLOUT_CODE_BLOCK", "Code blocks are not supported inside a Callout.");
-  if (/!\[[^\]]*\]\([^)]*\)/.test(body)) diagnostics.error("CALLOUT_IMAGE", "Images are not supported inside a Callout.");
-  if (/(^|\n)\s*\|.*\|/.test(body)) diagnostics.error("CALLOUT_TABLE", "Tables are not supported inside a Callout.");
-  if (/(^|\n)\s*\[\^[^\]]+\]:/.test(body)) diagnostics.error("CALLOUT_FOOTNOTE_DEFINITION", "Footnote definitions are not supported inside a Callout.");
-  const protectedBody = protectMath(body.trim() + "\n", config, diagnostics, ids, references);
-  let content = md.render(protectedBody.text);
-  for (const [key, value] of protectedBody.values) content = content.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+  const content = renderMarkdownBody(body.trim() + "\n", config, context, diagnostics);
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
   return "<div" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"" + classAttribute + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
@@ -123,15 +125,43 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
   return { text, values };
 }
 
-function preprocess(source: string, config: Config, diagnostics: Diagnostics): { text: string; replacements: Map<string, string>; ids: Set<string>; references: Map<string, string> } {
+function figureLabel(template: string, value: number): string {
+  return template.replace(/\{figure\.arabic\}/g, String(value));
+}
+
+function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
+  let index = 0;
+  return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)\s*(?:\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined) => {
+    if (/^(?:https?:|data:|\/\/)/i.test(src) || path.isAbsolute(src) || src.split(/[\\/]/).includes("..")) {
+      diagnostics.error("UNSUPPORTED_IMAGE", "Images must use local paths without parent directory traversal.");
+      return match;
+    }
+    const resolved = path.resolve(path.dirname(context.sourceFile), src);
+    if (!fs.existsSync(resolved)) diagnostics.error("IMAGE_NOT_FOUND", "Image file '" + src + "' does not exist.");
+    const extension = path.extname(src).toLowerCase();
+    if (![".png", ".jpg", ".jpeg", ".svg"].includes(extension)) diagnostics.error("UNSUPPORTED_IMAGE_TYPE", "Unsupported image type '" + extension + "'.");
+    const id = attributes?.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1];
+    if (id) {
+      if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
+      context.ids.add(id);
+    }
+    const numbered = config.layout.figure?.numbered !== false;
+    const number = numbered ? ++context.figures : 0;
+    const label = number ? figureLabel(String(config.layout.figure.display ?? "Figure {figure.arabic}."), number) : "";
+    if (id) context.references.set(id, label || "Figure");
+    const caption = [label, alt].filter(Boolean).join(" ");
+    const token = "MATHMDIMAGE" + index++ + "TOKEN";
+    replacements.set(token, "<figure" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"figure\"><img src=\"" + escapeHtml(src) + "\" alt=\"" + escapeHtml(alt) + "\"" + (title ? " title=\"" + escapeHtml(title) + "\"" : "") + ">" + (caption ? "<figcaption class=\"figure-caption\">" + escapeHtml(caption) + "</figcaption>" : "") + "</figure>");
+    return token;
+  });
+}
+
+function preprocess(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext): { text: string; replacements: Map<string, string> } {
   const replacements = new Map<string, string>();
   let sequence = 0;
   const token = (html: string): string => { const value = "MATHMDTOKEN" + sequence++ + "END"; replacements.set(value, html); return value; };
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const output: string[] = [];
-  const counters = new Map<string, number>();
-  const ids = new Set<string>();
-  const references = new Map<string, string>();
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const callout = line.match(/^>\s*\[!([^\]]+)\](?:\s+(.*))?$/);
@@ -147,7 +177,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       const calloutId = calloutAttributes?.[1].match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1];
       const calloutClasses = [...(calloutAttributes?.[1].matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g) ?? [])].map((match) => match[1]);
       if (calloutAttributes) calloutTitle = calloutTitle.slice(0, calloutAttributes.index).trim();
-      output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, counters, calloutId, calloutClasses, ids, references, diagnostics)));
+      output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, context, calloutId, calloutClasses, diagnostics)));
       i = j - 1;
       continue;
     }
@@ -167,7 +197,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       const attrs = heading[4] ?? "";
       const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
       const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
-      if (id) { if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); ids.add(id); references.set(id, heading[3]); }
+      if (id) { if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); context.ids.add(id); context.references.set(id, heading[3]); }
       output.push(heading[1] + " MATHMDNONUM MATHMDATTR:" + id + ":" + classes + ":" + heading[3]);
       continue;
     }
@@ -176,7 +206,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
       const attrs = ordinaryHeading[3];
       const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
       const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
-      if (id) { if (ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); ids.add(id); references.set(id, ordinaryHeading[2]); }
+      if (id) { if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); context.ids.add(id); context.references.set(id, ordinaryHeading[2]); }
       output.push(ordinaryHeading[1] + " MATHMDATTR:" + id + ":" + classes + ":" + ordinaryHeading[2]);
       continue;
     }
@@ -184,14 +214,25 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics): {
   }
   const footnoteDefinitions = new Set([...source.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
   let commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
+  commentSafeSource = protectImages(commentSafeSource, config, context, diagnostics, replacements);
   commentSafeSource = commentSafeSource.replace(/\[\^([^\]]+)\]/g, (match, label: string) => {
     if (footnoteDefinitions.has(label)) return match;
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
     return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   });
-  const protectedMath = protectMath(commentSafeSource, config, diagnostics, ids, references);
+  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context.ids, context.references);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
-  return { text: protectedMath.text, replacements, ids, references };
+  return { text: protectedMath.text, replacements };
+}
+
+function renderMarkdownBody(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
+  const prepared = preprocess(source, config, diagnostics, context);
+  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist);
+  let content = md.render(prepared.text);
+  content = content.replace(/<table>/g, "<table class=\"mathmd-table\">");
+  content = content.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
+  for (const [key, value] of prepared.replacements) content = content.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+  return content;
 }
 
 function addHeadingNumbers(html: string, config: Config): string {
@@ -240,9 +281,14 @@ function readBibliography(config: Config, file: string, diagnostics: Diagnostics
     const source = fs.readFileSync(resolved, "utf8");
     for (const match of source.matchAll(/@[^{]+\{([^,]+),([\s\S]*?)\n\}/g)) {
       const key = match[1].trim();
-      const title = match[2].match(/title\s*=\s*[\{\"]([^\}\"]+)/i)?.[1] ?? key;
+      const fields = match[2];
+      const field = (name: string): string | undefined => fields.match(new RegExp(name + "\\s*=\\s*[\\{\\\"]([^\\}\\\"]+)", "i"))?.[1]?.trim();
+      const title = field("title") ?? key;
+      const author = field("author") ?? "";
+      const year = field("year") ?? field("date")?.slice(0, 4) ?? "";
+      const url = field("url");
       if (entries.has(key)) diagnostics.warning("DUPLICATE_BIB_KEY", "Bibliography key '" + key + "' is duplicated; the later entry wins.");
-      entries.set(key, { key, title });
+      entries.set(key, { key, title, author, year, url });
     }
   }
   return entries;
@@ -256,10 +302,40 @@ function bibliography(config: Config, body: string, diagnostics: Diagnostics, fi
   const html = unique.map((key, index) => {
     const entry = entries.get(key);
     if (!entry) return "<li><b class=\"diagnostic-missing\">[" + escapeHtml(key) + "]</b></li>";
-    return "<li id=\"ref-" + escapeHtml(key) + "\">[" + (index + 1) + "] " + escapeHtml(String(entry.title ?? key)) + (entry.url ? " <a href=\"" + escapeHtml(entry.url) + "\">" + escapeHtml(entry.url) + "</a>" : "") + "</li>";
+    const author = String(entry.author ?? "");
+    const year = String(entry.year ?? "");
+    const prefix = config.citation.style === "author-year" ? (author ? author + (year ? " (" + year + ")" : "") : year) : "[" + (index + 1) + "]";
+    const url = entry.url ? " <a href=\"" + escapeHtml(entry.url) + "\">" + escapeHtml(entry.url) + "</a>" : "";
+    const authorLines = author.split(/\s+and\s+|;/i).map((name: string) => name.trim()).filter(Boolean).map((name: string) => "<span class=\"reference-author\">" + escapeHtml(name) + "</span>").join("<br>");
+    return "<li id=\"ref-" + escapeHtml(key) + "\"><span class=\"reference-authors\">" + (config.citation.style === "author-year" ? authorLines : "") + "</span>" + (config.citation.style === "author-year" && authorLines ? " " : "") + (config.citation.style === "numeric" ? "<span class=\"reference-label\">" + escapeHtml(prefix) + "</span> " : "") + escapeHtml(String(entry.title ?? key)) + (config.citation.style === "author-year" && year ? " (" + escapeHtml(year) + ")" : "") + url + "</li>";
   }).join("");
   const heading = config.citation.heading;
   return "<h" + heading.level + ">" + escapeHtml(heading.text) + "</h" + heading.level + "><ul class=\"references\">" + html + "</ul>";
+}
+
+function citationAuthor(author: string): string {
+  const names = author.split(/\s+and\s+|;/i).map((name) => name.trim()).filter(Boolean).map((name) => name.includes(",") ? name.split(",")[0].trim() : name.split(/\s+/).at(-1) ?? name);
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return names.join(" and ");
+  return names[0] + " et al.";
+}
+
+function formatDocumentDate(config: Config): string {
+  const meta = config.meta ?? {};
+  const raw = meta.date == null ? new Date() : new Date(String(meta.date));
+  const date = Number.isNaN(raw.getTime()) ? new Date() : raw;
+  const timezone = String(meta.timezone ?? "UTC");
+  const locale = /^ja(?:-|$)/i.test(String(meta.language ?? "en")) ? "ja-JP" : "en-US";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat(locale, { timeZone: timezone, year: "numeric", month: "long", day: "2-digit" }).formatToParts(date).map((part) => [part.type, part.value]));
+  const numeric = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const values = Object.fromEntries(numeric.map((part) => [part.type, part.value]));
+  const year = values.year ?? "";
+  const month = values.month ?? "";
+  const day = values.day ?? "";
+  const monthLong = parts.month ?? month;
+  const monthShort = new Intl.DateTimeFormat(locale, { timeZone: timezone, month: "short" }).format(date);
+  const format = String(config.layout.title.dateFormat ?? "yyyy-mm-dd");
+  return format.replace(/yyyy|yy|MMMM|MMM|mm|m|dd|d/g, (token) => ({ yyyy: year, yy: year.slice(-2), MMMM: monthLong, MMM: monthShort, mm: month, m: String(Number(month)), dd: day, d: String(Number(day)) }[token] ?? token));
 }
 
 function renderTitle(config: Config): string {
@@ -273,7 +349,7 @@ function renderTitle(config: Config): string {
     const affiliation = value.affiliation ? " <span class=\"affiliation\">" + escapeHtml(String(value.affiliation)) + "</span>" : "";
     return "<div class=\"author\"><span class=\"author-name\">" + name + "</span>" + affiliation + link + "</div>";
   }).join("");
-  const date = meta.date ? "<div class=\"date\">" + escapeHtml(String(meta.date)) + "</div>" : "";
+  const date = "<div class=\"date\">" + escapeHtml(formatDocumentDate(config)) + "</div>";
   return "<header class=\"document-title\"><h1 class=\"document-title-heading\">" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
 }
 
@@ -302,11 +378,9 @@ function resolveReferences(html: string, references: Map<string, string>, diagno
 export function compile(source: string, file = "document.md"): CompileResult {
   const diagnostics = new Diagnostics();
   const loaded = loadConfig(source, file, diagnostics);
-  const prepared = preprocess(loaded.body, loaded.config, diagnostics);
+  const context: RenderContext = { counters: new Map(), ids: new Set(), references: new Map(), figures: 0, sourceFile: file };
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
-  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote);
-  let html = md.render(prepared.text);
-  for (const [key, value] of prepared.replacements) html = html.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+  let html = renderMarkdownBody(loaded.body, loaded.config, context, diagnostics);
   html = html.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
   const tocCount = (loaded.body.match(/<maketoc\s*\/>/g) ?? []).length;
   const titleCount = (loaded.body.match(/<maketitle\s*\/>/g) ?? []).length;
@@ -327,10 +401,14 @@ export function compile(source: string, file = "document.md"): CompileResult {
       seen.add(key); return true;
     }).map((key: string) => {
       if (!bibEntries.has(key)) { diagnostics.warning("MISSING_CITATION", "Citation key '" + key + "' is not present in the bibliography."); return "<b class=\"diagnostic-missing\">[" + escapeHtml(key) + "]</b>"; }
+      if (loaded.config.citation.style === "author-year") {
+        const entry = bibEntries.get(key);
+        return escapeHtml(citationAuthor(String(entry.author ?? "")) + (entry.year ? ", " + entry.year : ""));
+      }
       if (!numbers.has(key)) numbers.set(key, nextNumber++);
       return String(numbers.get(key));
     });
-    return "<span class=\"citation\">[" + values.join(", ") + "]</span>";
+    return loaded.config.citation.style === "author-year" ? "<span class=\"citation citation-author-year\">(" + values.join("; ") + ")</span>" : "<span class=\"citation\">[" + values.join(", ") + "]</span>";
   });
   if (loaded.body.match(/\[@[^\]]+\]/) && referencesCount === 0) diagnostics.error("REFERENCES_DIRECTIVE_MISSING", "Citations require a <references /> element.");
   if (referencesCount > 0) {
@@ -342,9 +420,9 @@ export function compile(source: string, file = "document.md"): CompileResult {
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html, loaded.config));
   }
-  html = resolveReferences(html, prepared.references, diagnostics);
+  html = resolveReferences(html, context.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.equation-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;min-height:1.5em}.equation-content{grid-column:2;display:flex;justify-content:center;align-items:baseline;gap:.25em;min-width:0}.equation-number{grid-column:3;justify-self:end;white-space:nowrap}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{padding-left:2em}.reference-author{display:inline-block}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.equation-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;min-height:1.5em}.equation-content{grid-column:2;display:flex;justify-content:center;align-items:baseline;gap:.25em;min-width:0}.equation-number{grid-column:3;justify-self:end;white-space:nowrap}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

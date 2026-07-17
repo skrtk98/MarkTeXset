@@ -350,6 +350,6 @@ function normalizeConfig(config: Config): void {
     h2: heading.h2 ?? "{h1.arabic}.{h2.arabic}.",
     h3: heading.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
   };
-  config.layout.title.dateFormat = config.layout.title.dateFormat ?? config.layout.title["date-format"] ?? "yyyy-mm-dd";
+  config.layout.title.dateFormat = config.layout.title["date-format"] ?? config.layout.title.dateFormat ?? "yyyy-mm-dd";
   config.layout.counter.maxDepth = config.layout.counter.maxDepth ?? config.layout.counter["max-depth"] ?? 3;
 }

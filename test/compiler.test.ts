@@ -76,11 +76,11 @@ test("applies heading and callout attributes and diagnoses unresolved references
   assert.match(result.html, /diagnostic-missing/);
 });
 
-test("rejects unsupported phase-one values and invalid counter placeholders", () => {
+test("falls back unsupported phase-three languages and rejects invalid counter placeholders", () => {
   const diagnostics = new Diagnostics();
   loadConfig("---\nmathmd:\n  meta:\n    language: fr\n  layout:\n    class: book\n    callouts:\n      theorem:\n        title: \"Theorem {unknown.binary}\"\n---\ntext", "document.md", diagnostics);
   const codes = diagnostics.items.map((item) => item.code);
-  assert.ok(codes.includes("UNSUPPORTED_LANGUAGE"));
+  assert.ok(codes.includes("UNSUPPORTED_LANGUAGE_FALLBACK"));
   assert.ok(codes.includes("UNSUPPORTED_CLASS"));
   assert.ok(codes.includes("INVALID_COUNTER_TEMPLATE"));
 });
@@ -93,13 +93,55 @@ test("validates nested configuration keys and timezones", () => {
   assert.ok(codes.includes("INVALID_TIMEZONE"));
 });
 
-test("numbers multiline equations per row and rejects Callout-only forbidden blocks", () => {
+test("numbers multiline equations per row and supports code blocks in Callouts", () => {
   const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b\\\\c&=d \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
   assert.equal((result.html.match(/class="equation-number"/g) ?? []).length, 1);
   assert.match(result.html, /class="equation-content"/);
   assert.match(result.html, /\.equation-row\{display:grid/);
   assert.match(result.html, /mjx-assistive-mml\{position:absolute/);
-  assert.ok(result.diagnostics.items.some((item) => item.code === "CALLOUT_CODE_BLOCK"));
+  assert.match(result.html, /<pre><code class="language-js">code/);
+  assert.doesNotMatch(result.html, /CALLOUT_CODE_BLOCK/);
+});
+
+test("renders phase-three markdown extensions", () => {
+  const result = compile("~~removed~~\n\n- [ ] todo\n- [x] done\n\nTerm\n: Description\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /<s>removed<\/s>/);
+  assert.match(result.html, /task-list-item/);
+  assert.match(result.html, /<dl>/);
+  assert.match(result.html, /<dt>Term<\/dt>/);
+});
+
+test("allows rich Callout contents and nested Callouts", () => {
+  const result = compile("> [!remark] Outer\n> > [!proof]\n> > Inner `code`\n> >\n> > | A | B |\n> > |---|---|\n> > | 1 | 2 |\n> >\n> > [^inside]\n> >\n> > [^inside]: Nested note\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.ok((result.html.match(/class=\"callout /g) ?? []).length >= 2);
+  assert.match(result.html, /<table class=\"mathmd-table\">/);
+  assert.match(result.html, /<code>code<\/code>/);
+  assert.match(result.html, /Nested note/);
+});
+
+test("renders numbered figures and resolves figure references", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-figure-"));
+  fs.writeFileSync(path.join(directory, "image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>");
+  const result = compile("![Sample image](image.svg){#fig:sample}\n\nSee [](#fig:sample).\n", path.join(directory, "document.md"));
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /<figure id=\"fig:sample\" class=\"figure\">/);
+  assert.match(result.html, /Figure 1\. Sample image/);
+  assert.match(result.html, /href=\"#fig:sample\">Figure 1\.<\/a>/);
+});
+
+test("supports author-year citations, URLs, and advanced title dates", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-citation-"));
+  const bib = path.join(directory, "references.bib");
+  fs.writeFileSync(bib, "@article{doe2020,\n author={Doe, Jane and Roe, John},\n title={A Study},\n year={2020},\n url={https://example.com/study}\n}\n");
+  const source = "---\nmathmd:\n  meta:\n    title: Sample\n    date: 2020-01-02\n  citation:\n    style: author-year\n  bibliography:\n    - references.bib\n  layout:\n    title:\n      date-format: MMMM d, yyyy\n---\n<maketitle />\n\n[@doe2020]\n\n<references />\n";
+  const result = compile(source, path.join(directory, "document.md"));
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /citation-author-year">\(Doe and Roe, 2020\)<\/span>/);
+  assert.match(result.html, /A Study/);
+  assert.match(result.html, /href=\"https:\/\/example\.com\/study\"/);
+  assert.match(result.html, /January 2, 2020/);
 });
 
 test("rejects duplicate IDs and citations without a references directive", () => {
