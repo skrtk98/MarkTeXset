@@ -108,7 +108,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
             catch { return "<span class=\"math-error\">[math error]</span>"; }
           }).join("");
         }
-        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + mathHtml + number + "</div>";
+        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + "><span class=\"equation-content\">" + mathHtml + "</span>" + number + "</div>";
       }).join("");
       return put("<div class=\"math-block\">" + rendered + "</div>");
     } catch (error) {
@@ -344,7 +344,7 @@ export function compile(source: string, file = "document.md"): CompileResult {
   }
   html = resolveReferences(html, prepared.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.equation-row{display:flex;align-items:center;gap:.25em}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0}.callout-title{font-weight:bold}.qed{float:right}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.equation-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;min-height:1.5em}.equation-content{grid-column:2;display:flex;justify-content:center;align-items:baseline;gap:.25em;min-width:0}.equation-number{grid-column:3;justify-self:end;white-space:nowrap}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

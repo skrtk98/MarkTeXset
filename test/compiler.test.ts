@@ -88,7 +88,10 @@ test("validates nested configuration keys and timezones", () => {
 
 test("numbers multiline equations per row and rejects Callout-only forbidden blocks", () => {
   const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b\\\\c&=d \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
-  assert.equal((result.html.match(/equation-number/g) ?? []).length, 1);
+  assert.equal((result.html.match(/class="equation-number"/g) ?? []).length, 1);
+  assert.match(result.html, /class="equation-content"/);
+  assert.match(result.html, /\.equation-row\{display:grid/);
+  assert.match(result.html, /mjx-assistive-mml\{position:absolute/);
   assert.ok(result.diagnostics.items.some((item) => item.code === "CALLOUT_CODE_BLOCK"));
 });
 

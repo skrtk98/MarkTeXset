@@ -14,8 +14,9 @@ function clientScript(): string {
 }
 
 function inject(html: string): string {
+  const printStyle = "<style>@media print{#marktexset-diagnostics{display:none!important}}</style>";
   const script = "<script>" + clientScript() + "</script>";
-  return html.replace("</body>", script + "</body>");
+  return html.replace("</head>", printStyle + "</head>").replace("</body>", script + "</body>");
 }
 
 function errorPage(result: CompileResult): string {
