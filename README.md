@@ -66,6 +66,6 @@ mathmd:
 
 ## 実装状況
 
-フェーズ1.5までの npm・TypeScript 基盤、設定読み込み、Markdown/MathJax、基本見出し、Callout、診断、CLI、ローカルプレビューに加え、フェーズ2の Playwright/Paged.js PDF出力、MathMLアクセシビリティ、ページ制御、レイアウト診断を実装済み。文献・言語拡張、数学拡張は [最終仕様書の実装計画](docs/MathMD_Final_Specification.md#11-実装計画) に従って進める。
+フェーズ1.5までの基盤に加え、フェーズ2の Playwright/Paged.js PDF出力、MathMLアクセシビリティ、ページ制御、レイアウト診断、およびフェーズ3の文献・言語・定義リスト・GFM拡張・図・拡張Calloutを実装済み。残る数学拡張と高度な装飾は [最終仕様書の実装計画](docs/MathMD_Final_Specification.md#13-実装計画) に従って進める。
 
 TeX は MarkTeXset のコンパイルには使用しない。LuaLaTeX 等は、最終的な活版品質を比較する baseline としてのみ使用する。
