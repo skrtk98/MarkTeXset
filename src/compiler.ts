@@ -160,7 +160,8 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   const replacements = new Map<string, string>();
   let sequence = 0;
   const token = (html: string): string => { const value = "MATHMDTOKEN" + sequence++ + "END"; replacements.set(value, html); return value; };
-  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const imageSafeSource = protectImages(source, config, context, diagnostics, replacements);
+  const lines = imageSafeSource.replace(/\r\n/g, "\n").split("\n");
   const output: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -214,7 +215,6 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   }
   const footnoteDefinitions = new Set([...source.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
   let commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
-  commentSafeSource = protectImages(commentSafeSource, config, context, diagnostics, replacements);
   commentSafeSource = commentSafeSource.replace(/\[\^([^\]]+)\]/g, (match, label: string) => {
     if (footnoteDefinitions.has(label)) return match;
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
@@ -231,7 +231,15 @@ function renderMarkdownBody(source: string, config: Config, context: RenderConte
   let content = md.render(prepared.text);
   content = content.replace(/<table>/g, "<table class=\"mathmd-table\">");
   content = content.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
-  for (const [key, value] of prepared.replacements) content = content.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+  for (let pass = 0; pass <= prepared.replacements.size; pass++) {
+    let changed = false;
+    for (const [key, value] of prepared.replacements) {
+      const next = content.replace(new RegExp("<p>\\s*" + escapeRegex(key) + "\\s*</p>", "g"), value).split(key).join(value);
+      if (next !== content) changed = true;
+      content = next;
+    }
+    if (!changed) break;
+  }
   return content;
 }
 
