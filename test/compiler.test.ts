@@ -24,6 +24,13 @@ test("renders inline and block math inside Callouts", () => {
   assert.ok((result.html.match(/MathJax/g) ?? []).length >= 2);
 });
 
+test("keeps the proof QED marker inside the Callout body", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      proof:\n        title: Proof\n        style: proof\n---\n\n> [!proof]\n> The proof ends here.\n");
+  assert.match(result.html, /<div class="callout-body">[\s\S]*<span class="qed">□<\/span><\/div>/);
+  assert.match(result.html, /\.qed\{display:block;text-align:right/);
+  assert.doesNotMatch(result.html, /\.qed\{float:right/);
+});
+
 test("keeps adjacent Callouts as separate environments", () => {
   const result = compile("> [!theorem] First\n> One.\n\n> [!definition] Second\n> Two.\n");
   assert.equal((result.html.match(/class=\"callout /g) ?? []).length, 2);
