@@ -163,6 +163,17 @@ test("supports author-year citations, URLs, and advanced title dates", () => {
   assert.match(result.html, /January 2, 2020/);
 });
 
+test("renders numeric bibliography labels without list bullets", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-numeric-bib-"));
+  fs.writeFileSync(path.join(directory, "references.bib"), "@book{one,\n title={First Book},\n year={2020}\n}\n@book{two,\n title={Second Book},\n year={2021}\n}\n");
+  const source = "---\nmathmd:\n  bibliography:\n    - references.bib\n  citation:\n    style: numeric\n---\n[@one; @two]\n\n<references />\n";
+  const result = compile(source, path.join(directory, "document.md"));
+  assert.match(result.html, /<ul class="references references-numeric">/);
+  assert.match(result.html, /reference-label">\[1\]<\/span>/);
+  assert.match(result.html, /reference-label">\[2\]<\/span>/);
+  assert.match(result.html, /\.references\{list-style:none/);
+});
+
 test("rejects duplicate IDs and citations without a references directive", () => {
   const result = compile("# One {#same}\n\n# Two {#same}\n\n[@key]");
   assert.ok(result.diagnostics.items.some((item) => item.code === "DUPLICATE_ID"));
