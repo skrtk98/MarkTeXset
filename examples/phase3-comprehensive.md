@@ -108,9 +108,9 @@ mathmd:
 Inline math $\frac{a}{b}$, $\sqrt{x}$, $\mathbb{R}$, $\mathcal{F}$, $\mathrm{d}x$, $\operatorname{rank}(A)$, and the configured macro $\abs{x}$ are supported.
 
 $$
-a & = b + c \label{eq:phase3-first} \\
-d && = e + f \notag \\
-g & = h \label{eq:phase3-second}
+a & = b && c & = d \label{eq:phase3-first} \\
+e & = f && g & = h \notag \\
+i & = j && k & = l \label{eq:phase3-second}
 $$
 
 The first equation is [the first equation](#eq:phase3-first), and the second is [](#eq:phase3-second).
