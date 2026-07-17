@@ -96,9 +96,6 @@ mathmd:
 
 > A normal block quote remains distinct from a Callout.
 
-    indented code block
-    x = 1
-
 ```markdown
 [internal link](#phase3-theorem) uses standard Markdown fragment syntax.
 ```
