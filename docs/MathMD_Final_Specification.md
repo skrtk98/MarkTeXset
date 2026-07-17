@@ -250,7 +250,7 @@ Callout の `title` は YAML の文字列を CommonMark のインライン構文
 
 明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
 
-引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。既定は `References` / level 2。
+引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。numeric の参考文献一覧は標準箇条書きマーカーを使わず、`[1] Title`、`[2] Title` のラベルとハンギングインデントで表示する。既定は `References` / level 2。
 
 ## 8. 数式
 
