@@ -113,4 +113,6 @@ The author-year citations should render as (Knuth, 1984) and (Lamport and Doe, 1
 
 <pagestyle name="plain" />
 
+<pagebreak />
+
 <references />
