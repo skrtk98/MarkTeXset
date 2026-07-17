@@ -295,6 +295,7 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 
 - `marktexset preview`、HTTP 配信、`127.0.0.1:3000` 既定値、`--host` / `--port`
 - WebSocket による複数クライアントへの `status` / `reload` / `diagnostics` 配信
+- Preview でも Playwright + Paged.js による PDF 共通のレイアウト検査を行い、はみ出し・重なり・空白ページの診断を配信する。診断が空の場合はオーバーレイを表示しない。
 - 入力 Markdown と依存ファイルの監視、100ms debounce、ビルドの coalescing
 - 正常表示の保持、初回エラー画面、ブラウザ診断オーバーレイ、自動再接続
 - 依存資産だけの安全な配信、no-store、LAN 公開警告

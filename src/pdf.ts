@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
 
 const require = createRequire(import.meta.url);
@@ -62,25 +62,27 @@ h1, h2, h3, h4, h5, h6 { break-after: avoid; }
   return embedLocalImages(html.replace("<head>", "<head><base href=\"" + pathToFileURL(baseDirectory + path.sep).href + "\">").replace("</head>", phaseTwoCss + "</head>"), baseDirectory);
 }
 
-export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
-    await page.setContent(pdfHtml(result.html, result.config, path.dirname(sourceFile)), { waitUntil: "load" });
-    await page.evaluate(() => Promise.all([...document.images].map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); }))));
-    const pagedPath = path.resolve(path.dirname(require.resolve("pagedjs")), "../dist/paged.polyfill.js");
-    await page.addScriptTag({ path: pagedPath });
-    await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 30_000 });
-    await page.evaluate(() => document.fonts?.ready);
-    let previousPageCount = -1;
-    let stableCycles = 0;
-    for (let cycle = 0; cycle < 300 && stableCycles < 3; cycle++) {
-      const pageCount = await page.locator(".pagedjs_page").count();
-      if (pageCount === previousPageCount) stableCycles++;
-      else { previousPageCount = pageCount; stableCycles = 0; }
-      if (stableCycles < 3) await page.waitForTimeout(100);
-    }
-    const layoutDiagnostics = await page.evaluate(() => {
+export interface LayoutDiagnostic { code: string; message: string; }
+
+async function preparePagedPage(page: Page, result: CompileResult, sourceFile: string): Promise<void> {
+  await page.setContent(pdfHtml(result.html, result.config, path.dirname(sourceFile)), { waitUntil: "load" });
+  await page.evaluate(() => Promise.all([...document.images].map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); }))));
+  const pagedPath = path.resolve(path.dirname(require.resolve("pagedjs")), "../dist/paged.polyfill.js");
+  await page.addScriptTag({ path: pagedPath });
+  await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 30_000 });
+  await page.evaluate(() => document.fonts?.ready);
+  let previousPageCount = -1;
+  let stableCycles = 0;
+  for (let cycle = 0; cycle < 300 && stableCycles < 3; cycle++) {
+    const pageCount = await page.locator(".pagedjs_page").count();
+    if (pageCount === previousPageCount) stableCycles++;
+    else { previousPageCount = pageCount; stableCycles = 0; }
+    if (stableCycles < 3) await page.waitForTimeout(100);
+  }
+}
+
+async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
+  return page.evaluate(() => {
       const diagnostics: Array<{ code: string; message: string }> = [];
       const pages = [...document.querySelectorAll<HTMLElement>(".pagedjs_page")];
       for (const page of pages) {
@@ -106,7 +108,26 @@ export async function renderPdf(result: CompileResult, output: string, sourceFil
       }
       return diagnostics;
     });
-    for (const diagnostic of layoutDiagnostics) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+}
+
+export async function inspectLayout(result: CompileResult, sourceFile: string): Promise<LayoutDiagnostic[]> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
+    await preparePagedPage(page, result, sourceFile);
+    return await readLayoutDiagnostics(page);
+  } finally {
+    await browser.close();
+  }
+}
+
+export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
+  const layoutDiagnostics = await inspectLayout(result, sourceFile);
+  for (const diagnostic of layoutDiagnostics) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
+    await preparePagedPage(page, result, sourceFile);
     await page.pdf({ path: output, format: "A4", printBackground: true, displayHeaderFooter: false, margin: { top: "0", right: "0", bottom: "0", left: "0" } });
   } finally {
     await browser.close();

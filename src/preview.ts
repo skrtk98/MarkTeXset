@@ -3,13 +3,14 @@ import http from "node:http";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { compileFile, type CompileResult } from "./compiler.js";
+import { inspectLayout } from "./pdf.js";
 
 interface PreviewOptions { input: string; port: number; host: string; }
 
 function json(value: unknown): string { return JSON.stringify(value); }
 
 function clientScript(): string {
-  return "(function(){var overlay;function show(ds){if(!overlay){overlay=document.createElement('aside');overlay.id='marktexset-diagnostics';overlay.style='position:fixed;z-index:99999;right:0;top:0;max-width:42em;max-height:90vh;overflow:auto;background:#fff0f0;border:2px solid #c00;padding:1em;font:14px sans-serif;box-shadow:0 2px 8px #555';document.body.appendChild(overlay)}overlay.innerHTML='<button id=\"marktexset-close\" style=\"float:right\">×</button><h2>Diagnostics</h2>'+ds.map(function(d){return '<div style=\"border-top:1px solid #ccc;padding:.5em 0;color:'+(d.severity==='error'?'#a00':'#a60')+'\"><b>'+d.severity.toUpperCase()+' '+d.code+'</b><br>'+d.message+(d.location?'<br>'+d.location.file+':'+d.location.start.line+':'+d.location.start.column:'')+'</div>'}).join('');document.getElementById('marktexset-close').onclick=function(){overlay.remove();overlay=null}}function connect(){var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/__marktexset/ws');ws.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='diagnostics')show(m.diagnostics);if(m.type==='reload'){var y=scrollY;fetch('/',{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){document.open();document.write(t);document.close();scrollTo(0,y)})}};ws.onclose=function(){setTimeout(connect,500)}}fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){if(s.diagnostics&&s.diagnostics.length)show(s.diagnostics)});connect()})();";
+  return "(function(){var overlay;function show(ds){if(!ds.length){if(overlay){overlay.remove();overlay=null}return}if(!overlay){overlay=document.createElement('aside');overlay.id='marktexset-diagnostics';overlay.style='position:fixed;z-index:99999;right:0;top:0;max-width:42em;max-height:90vh;overflow:auto;background:#fff0f0;border:2px solid #c00;padding:1em;font:14px sans-serif;box-shadow:0 2px 8px #555';document.body.appendChild(overlay)}overlay.innerHTML='<button id=\"marktexset-close\" style=\"float:right\">×</button><h2>Diagnostics</h2>'+ds.map(function(d){return '<div style=\"border-top:1px solid #ccc;padding:.5em 0;color:'+(d.severity==='error'?'#a00':'#a60')+'\"><b>'+d.severity.toUpperCase()+' '+d.code+'</b><br>'+d.message+(d.location?'<br>'+d.location.file+':'+d.location.start.line+':'+d.location.start.column:'')+'</div>'}).join('');document.getElementById('marktexset-close').onclick=function(){overlay.remove();overlay=null}}function connect(){var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/__marktexset/ws');ws.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='diagnostics')show(m.diagnostics);if(m.type==='reload'){var y=scrollY;fetch('/',{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){document.open();document.write(t);document.close();scrollTo(0,y)})}};ws.onclose=function(){setTimeout(connect,500)}}fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])});connect()})();";
 }
 
 function inject(html: string): string {
@@ -35,9 +36,18 @@ function dependencies(input: string): string[] {
   return [...result];
 }
 
-export function startPreview(options: PreviewOptions): Promise<void> {
+export async function startPreview(options: PreviewOptions): Promise<void> {
   const input = path.resolve(options.input);
   let current = compileFile(input);
+  const inspectCurrentLayout = async () => {
+    if (current.diagnostics.hasErrors) return;
+    try {
+      for (const diagnostic of await inspectLayout(current, input)) current.diagnostics.warning(diagnostic.code, diagnostic.message);
+    } catch (error) {
+      current.diagnostics.warning("LAYOUT_INSPECTION_FAILED", "Preview layout inspection failed: " + String(error));
+    }
+  };
+  await inspectCurrentLayout();
   let lastGood: string | undefined = current.diagnostics.hasErrors ? undefined : current.html;
   let revision = 0;
   let building = false;
@@ -57,12 +67,13 @@ export function startPreview(options: PreviewOptions): Promise<void> {
     allowedAssets = new Set(files.filter((file) => file !== input));
     watchers = files.map((file) => fs.watch(file, (eventType) => { if (eventType === "rename") watchedKey = ""; schedule(); }));
   };
-  const build = () => {
+  const build = async () => {
     if (building) { pending = true; return; }
     building = true;
     broadcast({ type: "status", state: "building", revision });
     try {
       current = compileFile(input);
+      await inspectCurrentLayout();
       revision++;
       if (!current.diagnostics.hasErrors) lastGood = current.html;
       refreshWatchers();

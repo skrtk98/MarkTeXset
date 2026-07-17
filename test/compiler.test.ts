@@ -163,3 +163,30 @@ test("preview serves HTML and broadcasts one reload after a source change", asyn
     child.kill("SIGTERM");
   }
 });
+
+test("preview broadcasts phase-two layout diagnostics", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-layout-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, "# Overflow\n\n```text\n" + "x".repeat(180) + "\n```\n");
+  const port = 34672;
+  const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("preview did not start")), 10000);
+      child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
+      child.on("error", reject);
+    });
+    const diagnostics = await new Promise<any[]>((resolve, reject) => {
+      const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws");
+      const timeout = setTimeout(() => { socket.close(); reject(new Error("layout diagnostics were not received")); }, 10000);
+      socket.on("message", (data) => {
+        const message = JSON.parse(String(data));
+        if (message.type === "diagnostics") { clearTimeout(timeout); socket.close(); resolve(message.diagnostics); }
+      });
+      socket.on("error", reject);
+    });
+    assert.ok(diagnostics.some((item) => item.code === "LAYOUT_OVERFLOW"));
+  } finally {
+    child.kill("SIGTERM");
+  }
+});
