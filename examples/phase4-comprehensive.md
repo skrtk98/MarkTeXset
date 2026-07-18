@@ -105,7 +105,7 @@ C \arrow[ur] & D
 
 #: Numberless subsection
 
-### Background
+## Background
 
 The lower heading continues its normal hierarchy after a numberless heading. A missing footnote [^missing] remains a visible diagnostic.
 

@@ -47,7 +47,7 @@ marktexset preview document.md
 
 フェーズ2のPDF・レイアウト記法を網羅したサンプルは [examples/phase2-comprehensive.md](examples/phase2-comprehensive.md) である。`build --format pdf` は Playwright 管理下の Chromium でPDFを生成し、Paged.js によるページ分割の事前検査、MathJax の SVG + 支援 MathML、ローカル画像、改ページ、はみ出し・重なり・空白ページ診断を行う。
 
-フェーズ3までの累積機能（フェーズ1、1.5、2、3）を網羅したサンプルは [examples/phase3-comprehensive.md](examples/phase3-comprehensive.md) である。フェーズ4までの累積機能を網羅したサンプルは [examples/phase4-comprehensive.md](examples/phase4-comprehensive.md) で、期待診断は [examples/phase4-comprehensive.expected.json](examples/phase4-comprehensive.expected.json) に置く。各 `phaseN-comprehensive.md` は、そのフェーズ固有の機能だけでなく、それ以前の全フェーズの要素も含める。
+フェーズ3までの累積機能（フェーズ1、1.5、2、3）を網羅したサンプルは [examples/phase3-comprehensive.md](examples/phase3-comprehensive.md) である。フェーズ4までの累積機能を網羅したサンプルは [examples/phase4-comprehensive.md](examples/phase4-comprehensive.md) で、期待診断は [examples/phase4-comprehensive.expected.json](examples/phase4-comprehensive.expected.json) に置く。全テスト・Preview・PDFの検証結果は [docs/phase4-test-report.md](docs/phase4-test-report.md) に記録している。各 `phaseN-comprehensive.md` は、そのフェーズ固有の機能だけでなく、それ以前の全フェーズの要素も含める。
 
 TeXとの比較が必要な場合は [baseline/](baseline/) のDocker補助環境を使う。これはMarkTeXsetのビルド経路ではない。
 
