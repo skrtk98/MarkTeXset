@@ -117,7 +117,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
   unknownNested(value.layout?.equation, ["numbered", "display", "reference"], "layout.equation", file, source, diagnostics);
   unknownNested(value.layout?.figure, ["numbered", "display", "reference"], "layout.figure", file, source, diagnostics);
-  if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style"], "layout.callouts." + name, file, source, diagnostics);
+  if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style", "class"], "layout.callouts." + name, file, source, diagnostics);
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
   if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
   if (isRecord(value.command?.operators)) for (const [name, definition] of Object.entries(value.command.operators)) unknownNested(definition, ["text", "font", "limits", "redef"], "command.operators." + name, file, source, diagnostics);
@@ -208,9 +208,8 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   }
   for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
     if (!isRecord(definition)) continue;
-    if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style))) {
-      diagnostics.warning("UNKNOWN_CALLOUT_STYLE", "Unknown callout style '" + definition.style + "', falling back to plain.", locationFor(source, file, 0));
-    }
+    if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style)) && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(String(definition.style))) diagnostics.error("INVALID_CALLOUT_STYLE", "Callout style must be a built-in style or a CSS class name.", locationFor(source, file, 0));
+    if (definition.class !== undefined && (typeof definition.class !== "string" || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(definition.class))) diagnostics.error("INVALID_CALLOUT_CLASS", "Callout class must be a CSS class name.", locationFor(source, file, 0));
     if (typeof definition.title === "string") validateTitle(definition.title, file, source, diagnostics);
     if (name.length === 0) diagnostics.error("INVALID_CALLOUT_NAME", "Callout names must not be empty.", locationFor(source, file, 0));
   }

@@ -7,6 +7,7 @@ import deflist from "markdown-it-deflist";
 import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { renderMath, renderMultilineMath } from "./math.js";
+import { renderTikzCd } from "./tikz.js";
 
 export interface CompileResult {
   html: string;
@@ -24,6 +25,37 @@ interface RenderContext {
 
 const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const SAFE_ATTRIBUTE_NAMES = new Set(["role", "title", "lang", "dir", "tabindex", "hidden", "open"]);
+
+interface ParsedAttributes { id: string; classes: string[]; attributes: Record<string, string>; }
+
+function parseAttributes(source: string, diagnostics: Diagnostics): ParsedAttributes {
+  const id = source.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
+  const classes = [...source.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]);
+  const attributes: Record<string, string> = {};
+  const pattern = /([A-Za-z_:][A-Za-z0-9_.:-]*)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  for (const match of source.matchAll(pattern)) {
+    const name = match[1];
+    if (!SAFE_ATTRIBUTE_NAMES.has(name) && !/^aria-[a-z][A-Za-z0-9-]*$/.test(name) && !/^data-[a-z][A-Za-z0-9-]*$/.test(name)) {
+      diagnostics.error("UNSAFE_HTML_ATTRIBUTE", "HTML attribute '" + name + "' is not allowed.");
+      continue;
+    }
+    attributes[name] = match[2] ?? match[3] ?? match[4] ?? "";
+  }
+  return { id, classes, attributes };
+}
+
+function serializeAttributes(attributes: ParsedAttributes): string {
+  return encodeURIComponent(JSON.stringify(attributes));
+}
+
+function renderAttributes(id: string, classes: string, attributes: Record<string, string>): string {
+  const parts = [] as string[];
+  if (id) parts.push("id=\"" + escapeHtml(id) + "\"");
+  if (classes) parts.push("class=\"" + escapeHtml(classes) + "\"");
+  for (const [name, value] of Object.entries(attributes)) parts.push(name + "=\"" + escapeHtml(value) + "\"");
+  return parts.length ? " " + parts.join(" ") : "";
+}
 
 function expandMacros(source: string, config: Config): string {
   let expanded = source;
@@ -52,10 +84,11 @@ function counterText(template: string, name: string, value: number): string {
   });
 }
 
-function renderCallout(name: string, body: string, config: Config, context: RenderContext, id: string | undefined, classes: string[], diagnostics: Diagnostics): string {
+function renderCallout(name: string, body: string, config: Config, context: RenderContext, id: string | undefined, classes: string[], attributes: Record<string, string>, diagnostics: Diagnostics): string {
   const definitions = config.layout.callouts ?? {};
   const definition = definitions[name] ?? { title: name, style: "plain" };
-  const style = ["plain", "definition", "remark", "proof"].includes(definition.style) ? definition.style : "plain";
+  const configuredStyle = String(definition.style ?? "plain");
+  const style = ["plain", "definition", "remark", "proof"].includes(configuredStyle) ? configuredStyle : "plain";
   const title = String(definition.title ?? name);
   const numbered = /\{[^}]+\}/.test(title);
   let renderedTitle = title;
@@ -71,8 +104,9 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   }
   const content = renderMarkdownBody(body.trim() + "\n", config, context, diagnostics);
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
-  const classAttribute = ["callout", "callout-" + style, ...classes].map(escapeHtml).join(" ");
-  return "<div" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"" + classAttribute + "\"><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
+  const customStyle = style === "plain" && configuredStyle !== "plain" ? "callout-style-" + configuredStyle : "";
+  const classAttribute = ["callout", "callout-" + style, customStyle, typeof definition.class === "string" ? definition.class : "", ...classes].filter(Boolean).map(escapeHtml).join(" ");
+  return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
 function protectMath(source: string, config: Config, diagnostics: Diagnostics, ids: Set<string>, references: Map<string, string>): { text: string; values: Map<string, string> } {
@@ -84,6 +118,16 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
     return token;
   };
   let equation = 0;
+  const resolveTexReferences = (value: string): string => value.replace(/\\(eqref|ref)\{([^}]+)\}/g, (_match, kind: string, id: string) => {
+    const reference = references.get(id);
+    if (!reference) {
+      diagnostics.warning("UNRESOLVED_REFERENCE", "Reference '#" + id + "' could not be resolved.");
+      return "\\text{??}";
+    }
+    const label = kind === "eqref" ? reference : reference.replace(/^\(|\)\s*$/g, "");
+    const escaped = label.replace(/[\\%#$&_{}]/g, "\\$&");
+    return "\\href{#" + id.replace(/[^A-Za-z0-9:_-]/g, "") + "}{\\text{" + escaped + "}}";
+  });
   let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (_m, body: string) => {
     try {
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
@@ -102,13 +146,13 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
           references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
         }
         const rowSource = row.source ?? "";
-        let mathHtml = renderMath(expandMacros(rowSource, config), true).html;
+        let mathHtml = renderMath(resolveTexReferences(expandMacros(rowSource, config)), true).html;
         if (rowSource.includes("&")) {
           const cells = rowSource.split("&");
           mathHtml = cells.map((cell, index) => {
             const style = "grid-column:" + (index + 2) + ";grid-row:" + (rowIndex + 1) + ";";
             if (!cell.trim()) return "<span class=\"equation-content math-anchor-gap\" style=\"" + style + "\"></span>";
-      try { return "<span class=\"equation-content math-anchor-" + (index % 2 ? "left" : "right") + "\" style=\"" + style + "\">" + renderMath(expandMacros(cell, config), true).html + "</span>"; }
+      try { return "<span class=\"equation-content math-anchor-" + (index % 2 ? "left" : "right") + "\" style=\"" + style + "\">" + renderMath(resolveTexReferences(expandMacros(cell, config)), true).html + "</span>"; }
             catch { return "<span class=\"math-error\">[math error]</span>"; }
           }).join("");
         }
@@ -122,7 +166,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
     }
   });
   text = text.replace(/\$([^$\n]+)\$/g, (_m, body: string) => {
-    try { return put(renderMath(expandMacros(body, config), false).html); }
+    try { return put(renderMath(resolveTexReferences(expandMacros(body, config)), false).html); }
     catch (error) { diagnostics.error("MATH_RENDER", String(error)); return put("<span class=\"math-error\">[math error]</span>"); }
   });
   return { text, values };
@@ -168,6 +212,15 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   const output: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (/^```tikzcd\s*$/i.test(line)) {
+      const body: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && !/^```\s*$/.test(lines[j])) { body.push(lines[j]); j++; }
+      if (j >= lines.length) diagnostics.error("UNCLOSED_TIKZCD", "tikzcd fence is not closed.");
+      output.push(token(renderTikzCd(body.join("\n"))));
+      i = j;
+      continue;
+    }
     const callout = line.match(/^>\s*\[!([^\]]+)\](?:\s+(.*))?$/);
     if (callout) {
       const body: string[] = [];
@@ -178,10 +231,9 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
       }
       let calloutTitle = callout[2] ?? "";
       const calloutAttributes = calloutTitle.match(/\s+\{([^}]*)\}\s*$/);
-      const calloutId = calloutAttributes?.[1].match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1];
-      const calloutClasses = [...(calloutAttributes?.[1].matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g) ?? [])].map((match) => match[1]);
+      const parsedCalloutAttributes = parseAttributes(calloutAttributes?.[1] ?? "", diagnostics);
       if (calloutAttributes) calloutTitle = calloutTitle.slice(0, calloutAttributes.index).trim();
-      output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, context, calloutId, calloutClasses, diagnostics)));
+      output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, context, parsedCalloutAttributes.id, parsedCalloutAttributes.classes, parsedCalloutAttributes.attributes, diagnostics)));
       i = j - 1;
       continue;
     }
@@ -198,20 +250,16 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     }
     const heading = line.match(/^(#{1,6})(:)\s+(.+?)(?:\s+\{([^}]*)\})?$/);
     if (heading) {
-      const attrs = heading[4] ?? "";
-      const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
-      const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
-      if (id) { if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); context.ids.add(id); context.references.set(id, heading[3]); }
-      output.push(heading[1] + " MATHMDNONUM MATHMDATTR:" + id + ":" + classes + ":" + heading[3]);
+      const parsedAttributes = parseAttributes(heading[4] ?? "", diagnostics);
+      if (parsedAttributes.id) { if (context.ids.has(parsedAttributes.id)) diagnostics.error("DUPLICATE_ID", "ID '" + parsedAttributes.id + "' is defined more than once."); context.ids.add(parsedAttributes.id); context.references.set(parsedAttributes.id, heading[3]); }
+      output.push(heading[1] + " MATHMDNONUM MATHMDATTR:" + serializeAttributes(parsedAttributes) + ":" + heading[3]);
       continue;
     }
     const ordinaryHeading = line.match(/^(#{1,6})\s+(.+?)\s+\{([^}]*)\}\s*$/);
     if (ordinaryHeading) {
-      const attrs = ordinaryHeading[3];
-      const id = attrs.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1] ?? "";
-      const classes = [...attrs.matchAll(/(?:^|\s)\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1]).join(".");
-      if (id) { if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once."); context.ids.add(id); context.references.set(id, ordinaryHeading[2]); }
-      output.push(ordinaryHeading[1] + " MATHMDATTR:" + id + ":" + classes + ":" + ordinaryHeading[2]);
+      const parsedAttributes = parseAttributes(ordinaryHeading[3], diagnostics);
+      if (parsedAttributes.id) { if (context.ids.has(parsedAttributes.id)) diagnostics.error("DUPLICATE_ID", "ID '" + parsedAttributes.id + "' is defined more than once."); context.ids.add(parsedAttributes.id); context.references.set(parsedAttributes.id, ordinaryHeading[2]); }
+      output.push(ordinaryHeading[1] + " MATHMDATTR:" + serializeAttributes(parsedAttributes) + ":" + ordinaryHeading[2]);
       continue;
     }
     output.push(line);
@@ -257,14 +305,23 @@ function addHeadingNumbers(html: string, config: Config): string {
     const marker = "MATHMDNONUM ";
     let id = "";
     let classes = "";
+    let customAttributes: Record<string, string> = {};
     const unnumbered = content.startsWith("MATHMDNONUM ");
     if (unnumbered) content = content.slice("MATHMDNONUM ".length);
     if (content.startsWith("MATHMDATTR:")) {
-      const attribute = content.match(/^MATHMDATTR:([^:]*):([^:]*):(.*)$/s);
-      if (attribute) { id = attribute[1]; classes = attribute[2].replace(/\./g, " "); content = attribute[3]; }
+      const attribute = content.match(/^MATHMDATTR:([^:]+):(.*)$/s);
+      if (attribute) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(attribute[1])) as ParsedAttributes;
+          id = parsed.id ?? "";
+          classes = (parsed.classes ?? []).join(" ");
+          customAttributes = parsed.attributes ?? {};
+          content = attribute[2];
+        } catch { content = attribute[2]; }
+      }
     }
     if (content.startsWith(marker)) content = content.slice(marker.length);
-    const attrs = existingAttrs + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + (classes ? " class=\"" + escapeHtml(classes) + "\"" : "");
+    const attrs = existingAttrs + renderAttributes(id, classes, customAttributes);
     if (unnumbered) {
       counters[level] = 0;
       for (let i = level + 1; i <= 6; i++) counters[i] = 0;
@@ -435,7 +492,7 @@ export function compile(source: string, file = "document.md"): CompileResult {
   }
   html = resolveReferences(html, context.references, diagnostics);
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
 export function compileFile(file: string): CompileResult {

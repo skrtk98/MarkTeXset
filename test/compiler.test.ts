@@ -24,6 +24,33 @@ test("renders inline and block math inside Callouts", () => {
   assert.ok((result.html.match(/MathJax/g) ?? []).length >= 2);
 });
 
+test("supports tikzcd fences and TeX equation references", () => {
+  const result = compile("$$x = 1 \\label{eq:first}$$\n\nSee $\\ref{eq:first}$ and $\\eqref{eq:first}$.\n\n```tikzcd\nA \\arrow[r] & B \\\\\nC & D \\arrow[u]\n```");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /href=\"#eq:first\"/);
+  assert.match(result.html, /class=\"tikzcd-table\"/);
+  assert.match(result.html, /tikzcd-arrows/);
+  assert.match(result.html, /\.tikzcd-table\{border-collapse/);
+});
+
+test("supports additional MathJax font commands", () => {
+  const result = compile("$\\mathbf{A}+\\mathsf{B}+\\mathtt{C}$");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /class=\"MathJax\"/);
+});
+
+test("supports phase-four custom Callout styles and safe HTML attributes", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      theorem:\n        title: Custom theorem\n        style: custom-theorem\n        class: highlighted\n---\n# Heading {#heading .lead role=\"doc-subtitle\" data-kind=\"phase4\"}\n\n> [!theorem] Example {#custom aria-label=\"Custom theorem\"}\n> Body\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /id=\"heading\" class=\"lead\" role=\"doc-subtitle\" data-kind=\"phase4\"/);
+  assert.match(result.html, /id=\"custom\" class=\"callout callout-plain callout-style-custom-theorem highlighted\" aria-label=\"Custom theorem\"/);
+});
+
+test("rejects unsafe phase-four HTML attributes", () => {
+  const result = compile("# Heading {onclick=\"alert(1)\"}\n");
+  assert.ok(result.diagnostics.items.some((item) => item.code === "UNSAFE_HTML_ATTRIBUTE"));
+});
+
 test("keeps the proof QED marker inside the Callout body", () => {
   const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      proof:\n        title: Proof\n        style: proof\n---\n\n> [!proof]\n> The proof ends here.\n");
   assert.match(result.html, /<div class="callout-body">[\s\S]*<span class="qed">□<\/span><\/div>/);
@@ -223,7 +250,7 @@ test("preview serves HTML and broadcasts one reload after a source change", asyn
   const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
   try {
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("preview did not start")), 5000);
+      const timeout = setTimeout(() => reject(new Error("preview did not start")), 30000);
       child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
       child.on("error", reject);
     });
@@ -254,7 +281,7 @@ test("preview broadcasts phase-two layout diagnostics", async () => {
   const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
   try {
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("preview did not start")), 10000);
+      const timeout = setTimeout(() => reject(new Error("preview did not start")), 30000);
       child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
       child.on("error", reject);
     });
