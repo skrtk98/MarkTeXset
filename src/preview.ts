@@ -48,7 +48,6 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
       current.diagnostics.warning("LAYOUT_INSPECTION_FAILED", "Preview layout inspection failed: " + String(error));
     }
   };
-  await inspectCurrentLayout();
   let lastGood: string | undefined = current.diagnostics.hasErrors ? undefined : current.html;
   let revision = 0;
   let building = false;
@@ -58,6 +57,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   let watchedKey = "";
   let allowedAssets = new Set<string>();
   const clients = new Set<WebSocket>();
+  let initialLayoutReady = false;
   const broadcast = (message: unknown) => { const data = json(message); for (const client of clients) if (client.readyState === 1) client.send(data); };
   const refreshWatchers = () => {
     const files = dependencies(input);
@@ -110,13 +110,21 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     response.end(inject(lastGood ?? errorPage(current)));
   });
   const socketServer = new WebSocketServer({ server, path: "/__marktexset/ws" });
-  socketServer.on("connection", (client) => { clients.add(client); client.send(json({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() })); client.on("close", () => clients.delete(client)); });
+  socketServer.on("connection", (client) => {
+    clients.add(client);
+    if (initialLayoutReady) client.send(json({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() }));
+    client.on("close", () => clients.delete(client));
+  });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port, options.host, () => {
       const displayHost = options.host.includes(":") ? "[" + options.host + "]" : options.host;
       console.error("Preview server running at http://" + displayHost + ":" + options.port + "/");
       console.error("Watching " + input);
+      void inspectCurrentLayout().then(() => {
+        initialLayoutReady = true;
+        broadcast({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() });
+      });
     });
     const close = () => { if (timer) clearTimeout(timer); for (const watcher of watchers) watcher.close(); socketServer.close(); server.close(() => resolve()); };
     process.once("SIGINT", close);

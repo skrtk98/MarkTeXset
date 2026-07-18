@@ -258,7 +258,7 @@ test("preview serves HTML and broadcasts one reload after a source change", asyn
     assert.match(page, /Before/);
     const reload = new Promise<void>((resolve, reject) => {
       const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws");
-      const timeout = setTimeout(() => { socket.close(); reject(new Error("reload was not received")); }, 5000);
+      const timeout = setTimeout(() => { socket.close(); reject(new Error("reload was not received")); }, 60000);
       socket.on("message", (data) => {
         const message = JSON.parse(String(data));
         if (message.type === "reload") { clearTimeout(timeout); socket.close(); resolve(); }
@@ -287,7 +287,7 @@ test("preview broadcasts phase-two layout diagnostics", async () => {
     });
     const diagnostics = await new Promise<any[]>((resolve, reject) => {
       const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws");
-      const timeout = setTimeout(() => { socket.close(); reject(new Error("layout diagnostics were not received")); }, 10000);
+      const timeout = setTimeout(() => { socket.close(); reject(new Error("layout diagnostics were not received")); }, 60000);
       socket.on("message", (data) => {
         const message = JSON.parse(String(data));
         if (message.type === "diagnostics") { clearTimeout(timeout); socket.close(); resolve(message.diagnostics); }

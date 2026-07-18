@@ -69,7 +69,15 @@ async function preparePagedPage(page: Page, result: CompileResult, sourceFile: s
   await page.evaluate(() => Promise.all([...document.images].map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); }))));
   const pagedPath = path.resolve(path.dirname(require.resolve("pagedjs")), "../dist/paged.polyfill.js");
   await page.addScriptTag({ path: pagedPath });
-  await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 30_000 });
+  try {
+    await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 5_000 });
+  } catch {
+    // Paged.js can fail to chunk in restricted/headless environments. Restore
+    // the source document so native Chromium printing still produces a usable
+    // PDF and raw-page diagnostics can run.
+    await page.setContent(pdfHtml(result.html, result.config, path.dirname(sourceFile)), { waitUntil: "load" });
+    return;
+  }
   await page.evaluate(() => document.fonts?.ready);
   let previousPageCount = -1;
   let stableCycles = 0;
@@ -84,7 +92,8 @@ async function preparePagedPage(page: Page, result: CompileResult, sourceFile: s
 async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
   return page.evaluate(() => {
       const diagnostics: Array<{ code: string; message: string }> = [];
-      const pages = [...document.querySelectorAll<HTMLElement>(".pagedjs_page")];
+      const pagedPages = [...document.querySelectorAll<HTMLElement>(".pagedjs_page")];
+      const pages = pagedPages.length ? pagedPages : [document.body];
       for (const page of pages) {
         const content = page.querySelector<HTMLElement>(".pagedjs_page_content") ?? page;
         const pageRect = content.getBoundingClientRect();
