@@ -1,0 +1,8 @@
+/* Imported CSS is resolved relative to this file and inlined. */
+.imported-table {
+  background: #fffdf0;
+  background-image: url("assets/phase1.5.svg");
+  background-repeat: no-repeat;
+  background-position: right bottom;
+  background-size: 42px 42px;
+}

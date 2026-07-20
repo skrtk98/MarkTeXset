@@ -1,0 +1,7 @@
+{
+  "diagnostics": [
+    { "severity": "warning", "code": "UNRESOLVED_FOOTNOTE" },
+    { "severity": "warning", "code": "UNKNOWN_CODE_LANGUAGE" },
+    { "severity": "warning", "code": "MISSING_CITATION" }
+  ]
+}

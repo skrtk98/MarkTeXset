@@ -49,6 +49,8 @@ marktexset preview document.md
 
 フェーズ3までの累積機能（フェーズ1、1.5、2、3）を網羅したサンプルは [examples/phase3-comprehensive.md](examples/phase3-comprehensive.md) である。フェーズ4までの累積機能を網羅したサンプルは [examples/phase4-comprehensive.md](examples/phase4-comprehensive.md) で、期待診断は [examples/phase4-comprehensive.expected.json](examples/phase4-comprehensive.expected.json) に置く。全テスト・Preview・PDFの検証結果は [docs/phase4-test-report.md](docs/phase4-test-report.md) に記録している。各 `phaseN-comprehensive.md` は、そのフェーズ固有の機能だけでなく、それ以前の全フェーズの要素も含める。
 
+最終フェーズまでの累積機能を網羅したサンプルは [examples/final-phase-comprehensive.md](examples/final-phase-comprehensive.md)、期待診断は [examples/final-phase-comprehensive.expected.json](examples/final-phase-comprehensive.expected.json)、検証結果は [docs/final-phase-test-report.md](docs/final-phase-test-report.md) に置く。
+
 TeXとの比較が必要な場合は [baseline/](baseline/) のDocker補助環境を使う。これはMarkTeXsetのビルド経路ではない。
 
 `init` は空本文の初期文書を作成する。
@@ -66,6 +68,6 @@ mathmd:
 
 ## 実装状況
 
-フェーズ1.5までの基盤に加え、フェーズ2の Playwright/Paged.js PDF出力、MathMLアクセシビリティ、ページ制御、レイアウト診断、フェーズ3の文献・言語・定義リスト・GFM拡張・図・拡張Callout、およびフェーズ4の `tikz-cd`、TeX参照、追加フォント、安全なカスタムCallout style/HTML属性を実装済み。残る表装飾・文書スタイル・コードハイライトは [最終仕様書の実装計画](docs/MathMD_Final_Specification.md#13-実装計画) に従って進める。
+フェーズ1.5までの基盤に加え、フェーズ2のPDF出力・レイアウト診断、フェーズ3の文献・言語・図・拡張Callout、フェーズ4の `tikz-cd`・TeX参照・追加フォント・安全な属性、最終フェーズの結合表・CSS装飾・CSS import・Shikiコードハイライト・定理タイトル装飾を実装済み。Paged.js固有の環境依存事項は [最終フェーズ検証レポート](docs/final-phase-test-report.md) に記載している。
 
 TeX は MarkTeXset のコンパイルには使用しない。LuaLaTeX 等は、最終的な活版品質を比較する baseline としてのみ使用する。
