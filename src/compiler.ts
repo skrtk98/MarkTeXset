@@ -4,10 +4,15 @@ import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import taskLists from "markdown-it-task-lists";
 import deflist from "markdown-it-deflist";
+import multiTable from "markdown-it-multimd-table";
 import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { renderMath, renderMultilineMath } from "./math.js";
 import { renderTikzCd } from "./tikz.js";
+import { parseCodeInfo, renderCodeFence } from "./code.js";
+import { applyScopedMarkers, extractStyleBlocks, loadImportedStyles, renderStyleCss, type ExtractedStyles } from "./styles.js";
+
+const multiTablePlugin = multiTable as unknown as (md: MarkdownIt, options?: { rowspan: boolean }) => void;
 
 export interface CompileResult {
   html: string;
@@ -106,7 +111,8 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const customStyle = style === "plain" && configuredStyle !== "plain" ? "callout-style-" + configuredStyle : "";
   const classAttribute = ["callout", "callout-" + style, customStyle, typeof definition.class === "string" ? definition.class : "", ...classes].filter(Boolean).map(escapeHtml).join(" ");
-  return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + escapeHtml(renderedTitle) + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
+  const titleHtml = renderMarkdownBody(renderedTitle + "\n", config, context, diagnostics).replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
+  return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + titleHtml + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
 function protectMath(source: string, config: Config, diagnostics: Diagnostics, ids: Set<string>, references: Map<string, string>): { text: string; values: Map<string, string> } {
@@ -221,6 +227,11 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
       i = j;
       continue;
     }
+    const styleMarker = line.match(/^MATHMDSTYLE(style-scope-\d+)TOKEN$/);
+    if (styleMarker) {
+      output.push(token("<div class=\"" + styleMarker[1] + "\"></div>"));
+      continue;
+    }
     const callout = line.match(/^>\s*\[!([^\]]+)\](?:\s+(.*))?$/);
     if (callout) {
       const body: string[] = [];
@@ -278,7 +289,18 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
 
 function renderMarkdownBody(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
   const prepared = preprocess(source, config, diagnostics, context);
-  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist);
+  const footnoteDefinitions = [...prepared.text.matchAll(/^\[\^([^\]]+)\]:\s*(.*)$/gm)].map((match) => match[0]);
+  const footnoteReferences = [...prepared.text.matchAll(/^\[\^([^\]]+)\]\s*$/gm)].map((match) => match[0]);
+  if (footnoteDefinitions.length) prepared.text = prepared.text.replace(/^\[\^([^\]]+)\]:\s*(.*)$/gm, "").replace(/^\n+/, "");
+  if (footnoteReferences.length) prepared.text = prepared.text.replace(/^\[\^([^\]]+)\]\s*$/gm, "").replace(/^\n+/, "");
+  const footnotePrefix = [...footnoteDefinitions, ...footnoteReferences];
+  if (footnotePrefix.length) prepared.text = footnotePrefix.join("\n") + "\n\n" + prepared.text;
+  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist).use(multiTablePlugin, { rowspan: true, autolabel: false } as any);
+  md.renderer.rules.fence = (tokens, index) => {
+    const token = tokens[index];
+    const info = parseCodeInfo(token.info ?? "");
+    return renderCodeFence({ language: info.language, filename: info.filename, body: token.content }, diagnostics, String(config.code?.theme ?? "github-light"));
+  };
   md.block.ruler.disable("code");
   let content = md.render(prepared.text);
   content = content.replace(/<table>/g, "<table class=\"mathmd-table\">");
@@ -445,20 +467,36 @@ function resolveReferences(html: string, references: Map<string, string>, diagno
   });
 }
 
+function validateTableMerges(source: string, diagnostics: Diagnostics): void {
+  let tableDataRows = 0;
+  let tableHasSeparator = false;
+  for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) { tableDataRows = 0; tableHasSeparator = false; continue; }
+    if (/^\|?\s*:?-{3,}/.test(trimmed)) { tableHasSeparator = true; continue; }
+    if (tableHasSeparator && /\|\s*\^\^\s*(?:\||$)/.test(trimmed) && tableDataRows === 0) diagnostics.error("INVALID_TABLE_MERGE", "A rowspan continuation (^^) requires a preceding table cell.");
+    if (tableHasSeparator) tableDataRows++;
+  }
+}
+
 export function compile(source: string, file = "document.md"): CompileResult {
   const diagnostics = new Diagnostics();
   const loaded = loadConfig(source, file, diagnostics);
+  validateTableMerges(loaded.body, diagnostics);
+  const extractedStyles = extractStyleBlocks(loaded.body, diagnostics);
+  const importedStyles = loadImportedStyles(loaded.config, file, diagnostics);
+  const styleCss = renderStyleCss(extractedStyles, importedStyles);
   const context: RenderContext = { counters: new Map(), ids: new Set(), references: new Map(), figures: 0, sourceFile: file };
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
-  let html = renderMarkdownBody(loaded.body, loaded.config, context, diagnostics);
+  let html = renderMarkdownBody(extractedStyles.body, loaded.config, context, diagnostics);
   html = html.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
-  const tocCount = (loaded.body.match(/<maketoc\s*\/>/g) ?? []).length;
-  const titleCount = (loaded.body.match(/<maketitle\s*\/>/g) ?? []).length;
-  const referencesCount = (loaded.body.match(/<references\s*\/>/g) ?? []).length;
+  const tocCount = (extractedStyles.body.match(/<maketoc\s*\/>/g) ?? []).length;
+  const titleCount = (extractedStyles.body.match(/<maketitle\s*\/>/g) ?? []).length;
+  const referencesCount = (extractedStyles.body.match(/<references\s*\/>/g) ?? []).length;
   if (tocCount > 1) diagnostics.warning("DUPLICATE_TOC", "Only the first <maketoc /> is used.");
   if (titleCount > 1) diagnostics.warning("DUPLICATE_TITLE", "Only the first <maketitle /> is used.");
   if (referencesCount > 1) diagnostics.warning("DUPLICATE_REFERENCES", "Only the first <references /> is used.");
-  if (/<maketitle\s*\/>/.test(loaded.body)) {
+  if (/<maketitle\s*\/>/.test(extractedStyles.body)) {
     if (!loaded.config.meta?.title) diagnostics.warning("MISSING_TITLE", "<maketitle /> requires meta.title.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketitle\"><\/div>/, renderTitle(loaded.config));
   }
@@ -480,7 +518,7 @@ export function compile(source: string, file = "document.md"): CompileResult {
     });
     return loaded.config.citation.style === "author-year" ? "<span class=\"citation citation-author-year\">(" + values.join("; ") + ")</span>" : "<span class=\"citation\">[" + values.join(", ") + "]</span>";
   });
-  if (loaded.body.match(/\[@[^\]]+\]/) && referencesCount === 0) diagnostics.error("REFERENCES_DIRECTIVE_MISSING", "Citations require a <references /> element.");
+  if (extractedStyles.body.match(/\[@[^\]]+\]/) && referencesCount === 0) diagnostics.error("REFERENCES_DIRECTIVE_MISSING", "Citations require a <references /> element.");
   if (referencesCount > 0) {
     if (!(loaded.config.bibliography ?? []).length) diagnostics.warning("MISSING_BIBLIOGRAPHY", "<references /> was requested but no bibliography data was configured.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
@@ -491,6 +529,8 @@ export function compile(source: string, file = "document.md"): CompileResult {
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html, loaded.config));
   }
   html = resolveReferences(html, context.references, diagnostics);
+  html = applyScopedMarkers(html, extractedStyles);
+  if (styleCss) html = "<style>" + styleCss + "</style>" + html;
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
   return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }

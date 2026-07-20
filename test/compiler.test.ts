@@ -51,6 +51,77 @@ test("rejects unsafe phase-four HTML attributes", () => {
   assert.ok(result.diagnostics.items.some((item) => item.code === "UNSAFE_HTML_ATTRIBUTE"));
 });
 
+test("supports final-phase merged tables and global/scoped CSS", () => {
+  const result = compile(`<style>.mathmd-table td { border: 1px solid red; }</style>
+
+<style scoped>tbody tr:nth-child(n+1):nth-child(-n+1) td:nth-child(2) { text-align: right; vertical-align: middle; }</style>
+
+| Group | Value | Note |
+| --- | --- | --- |
+| A || first |
+| B | C | second |
+
+| A | B |
+| --- | --- |
+| x | y |
+| ^^ | z |
+`);
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /colspan="2"/);
+  assert.match(result.html, /rowspan="2"/);
+  assert.match(result.html, /border: 1px solid red/);
+  assert.match(result.html, /@scope \(\.style-scope-0\)/);
+  assert.match(result.html, /class="style-scope-0"/);
+});
+
+test("highlights final-phase code fences and safely falls back for unknown languages", () => {
+  const result = compile("```ts:src/example file.ts\nconst value = 1;\n```\n\n```unknownlang:odd & name\na < b\n```");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /code-filename">src\/example file\.ts/);
+  assert.match(result.html, /code-language">typescript/);
+  assert.match(result.html, /token-keyword/);
+  assert.match(result.html, /code-language">unknownlang/);
+  assert.match(result.html, /&lt; b/);
+  assert.ok(result.diagnostics.items.some((item) => item.code === "UNKNOWN_CODE_LANGUAGE"));
+});
+
+test("renders formatted Callout titles with counters and inline math", () => {
+  const result = compile(`---
+mathmd:
+  layout:
+    callouts:
+      theorem:
+        title: "Theorem **{theorem.arabic}.** $x$"
+        style: plain
+---
+> [!theorem]
+> Body
+`);
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /Theorem <strong>1\.<\/strong>/);
+  assert.match(result.html, /class="MathJax"/);
+});
+
+test("diagnoses invalid final-phase CSS imports and syntax", () => {
+  const result = compile(`---
+mathmd:
+  style:
+    import:
+      - ../missing.css
+---
+<style>broken { color: red;\n</style>
+text
+`);
+  const codes = result.diagnostics.items.map((item) => item.code);
+  assert.ok(codes.includes("CSS_PARENT_PATH"));
+  assert.ok(codes.includes("CSS_SYNTAX"));
+});
+
+test("rejects a rowspan continuation without a preceding table cell", () => {
+  const result = compile("| A | B |\n| --- | --- |\n| ^^ | value |\n");
+  assert.ok(result.diagnostics.items.some((item) => item.code === "INVALID_TABLE_MERGE"));
+});
+
 test("keeps the proof QED marker inside the Callout body", () => {
   const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      proof:\n        title: Proof\n        style: proof\n---\n\n> [!proof]\n> The proof ends here.\n");
   assert.match(result.html, /<div class="callout-body">[\s\S]*<span class="qed">□<\/span><\/div>/);
@@ -138,7 +209,7 @@ test("numbers multiline equations per row, preserves alignment gaps, and support
   assert.match(result.html, /\.math-block\{display:grid/);
   assert.match(result.html, /\.equation-row\{display:contents/);
   assert.match(result.html, /mjx-assistive-mml\{position:absolute/);
-  assert.match(result.html, /<pre><code class="language-js">code/);
+  assert.match(result.html, /<pre><code class="language-js"><span class="line">/);
   assert.doesNotMatch(result.html, /CALLOUT_CODE_BLOCK/);
 });
 

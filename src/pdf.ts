@@ -51,6 +51,7 @@ body { font-family: serif; }
 .mathmd-pagestyle[data-name="empty"] { break-after: avoid; }
  .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
+.code-copy { display: none !important; }
 .math-block { break-inside: avoid; }
 pre, table, .callout, .math-block, img { break-inside: avoid; max-width: 100%; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }

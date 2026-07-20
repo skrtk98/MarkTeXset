@@ -37,11 +37,13 @@ const DEFAULT_CONFIG: Config = {
     callouts: {},
   },
   command: { macros: {}, operators: {} },
+  style: { import: [] },
+  code: { theme: "github-light" },
   network: { allow: false, domains: [] },
 };
 
-const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "network"]);
-const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "network"]);
+const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "style", "code", "network"]);
+const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "style", "code", "network"]);
 const NUMBER_FORMATS = new Set(["arabic", "roman", "Roman", "alph", "Alph"]);
 const CALLOUT_STYLES = new Set(["plain", "definition", "remark", "proof"]);
 const OPERATOR_FONTS = new Set(["mathrm", "mathcal", "mathbb"]);
@@ -119,6 +121,8 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.figure, ["numbered", "display", "reference"], "layout.figure", file, source, diagnostics);
   if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style", "class"], "layout.callouts." + name, file, source, diagnostics);
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
+  unknownNested(value.style, ["import"], "style", file, source, diagnostics);
+  unknownNested(value.code, ["theme"], "code", file, source, diagnostics);
   if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
   if (isRecord(value.command?.operators)) for (const [name, definition] of Object.entries(value.command.operators)) unknownNested(definition, ["text", "font", "limits", "redef"], "command.operators." + name, file, source, diagnostics);
 }
@@ -179,6 +183,7 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
     diagnostics.error("EMPTY_NETWORK_ALLOWLIST", "network.allow requires a non-empty domains list.", locationFor(source, file, 0));
   }
   if (value.network?.domains !== undefined && (!Array.isArray(value.network.domains) || value.network.domains.some((domain: unknown) => typeof domain !== "string"))) diagnostics.error("INVALID_NETWORK_DOMAINS", "network.domains must be a list of strings.", locationFor(source, file, 0));
+  if (value.style?.import !== undefined && (!Array.isArray(value.style.import) || value.style.import.some((item: unknown) => typeof item !== "string"))) diagnostics.error("CSS_IMPORT_CONFIG", "style.import must be a list of strings.", locationFor(source, file, 0));
   validateMargins(value.layout?.margins, file, source, diagnostics);
   validateLayout(value.layout, file, source, diagnostics);
   validateCommands(value.command, file, source, diagnostics);
