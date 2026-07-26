@@ -26,6 +26,20 @@ interface RenderContext {
   references: Map<string, string>;
   figures: number;
   sourceFile: string;
+  sourceText: string;
+  config: Config;
+  mathInspector?: MathInspectorContext;
+}
+
+interface MathInspectorContext {
+  sourceText: string;
+  sourceFile: string;
+  cursor: number;
+  ordinal: number;
+}
+
+export interface CompileOptions {
+  mathInspector?: boolean;
 }
 
 const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -52,6 +66,59 @@ function parseAttributes(source: string, diagnostics: Diagnostics): ParsedAttrib
 
 function serializeAttributes(attributes: ParsedAttributes): string {
   return encodeURIComponent(JSON.stringify(attributes));
+}
+
+function mathInspectorHash(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function codePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
+function sourcePosition(source: string, offset: number): { line: number; column: number } {
+  const prefix = source.slice(0, Math.max(0, offset));
+  const line = (prefix.match(/\n/g) ?? []).length + 1;
+  const lastBreak = Math.max(prefix.lastIndexOf("\n"), prefix.lastIndexOf("\r"));
+  return { line, column: codePointLength(prefix.slice(lastBreak + 1)) + 1 };
+}
+
+function inspectorAttributes(context: RenderContext, kind: string, tex: string, start: number, end: number, rowId?: string): string {
+  const inspector = context.mathInspector;
+  if (!inspector) return "";
+  const id = "mathmd-" + mathInspectorHash(context.sourceFile + "\0" + kind + "\0" + tex + "\0" + inspector.ordinal++);
+  const startPosition = sourcePosition(inspector.sourceText, start);
+  const endPosition = sourcePosition(inspector.sourceText, end);
+  const relativeFile = path.relative(process.cwd(), context.sourceFile) || path.basename(context.sourceFile);
+  const attributes = [
+    ["data-mathmd-math-id", id],
+    ["data-mathmd-math-kind", kind],
+    ["data-mathmd-source-file", relativeFile],
+    ["data-mathmd-source-start", JSON.stringify({ line: startPosition.line, column: startPosition.column })],
+    ["data-mathmd-source-end", JSON.stringify({ line: endPosition.line, column: endPosition.column })],
+    ["data-mathmd-tex", tex],
+    ["data-mathmd-label", tex.match(/\\label\{([^}]+)\}/)?.[1] ?? ""],
+    ["data-mathmd-numbered", String(Boolean(context.config.layout?.equation?.numbered) || /\\label\{/.test(tex))],
+    ["data-mathmd-settings", JSON.stringify({ equation: context.config.layout?.equation ?? {} })],
+    ["tabindex", "0"],
+  ];
+  if (rowId) attributes.push(["data-mathmd-row-id", rowId]);
+  return attributes.map(([name, value]) => " " + name + "=\"" + escapeHtml(value) + "\"").join("");
+}
+
+function mathSourceOffset(context: RenderContext, source: string, offset: number, body: string): { start: number; end: number } {
+  const candidate = context.mathInspector ? context.mathInspector.sourceText.indexOf(body, context.mathInspector.cursor) : -1;
+  if (candidate >= 0) {
+    context.mathInspector!.cursor = candidate + body.length;
+    return { start: candidate, end: candidate + body.length };
+  }
+  const fallback = Math.max(0, Math.min(context.sourceText.length, offset));
+  return { start: fallback, end: Math.min(context.sourceText.length, fallback + body.length) };
 }
 
 function renderAttributes(id: string, classes: string, attributes: Record<string, string>): string {
@@ -115,7 +182,8 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + titleHtml + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
-function protectMath(source: string, config: Config, diagnostics: Diagnostics, ids: Set<string>, references: Map<string, string>): { text: string; values: Map<string, string> } {
+function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext): { text: string; values: Map<string, string> } {
+  const { ids, references } = context;
   const values = new Map<string, string>();
   let index = 0;
   const put = (html: string): string => {
@@ -134,8 +202,9 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
     const escaped = label.replace(/[\\%#$&_{}]/g, "\\$&");
     return "\\href{#" + id.replace(/[^A-Za-z0-9:_-]/g, "") + "}{\\text{" + escaped + "}}";
   });
-  let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (_m, body: string) => {
+  let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
     try {
+      const sourceRange = mathSourceOffset(context, source, offset, match);
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
       const rows = renderMultilineMath(body);
       const maxCells = Math.max(1, ...rows.map((row) => (row.source ?? "").includes("&") ? (row.source ?? "").split("&").length : 1));
@@ -152,6 +221,8 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
           references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
         }
         const rowSource = row.source ?? "";
+        const rowId = context.mathInspector ? "row-" + rowIndex : undefined;
+        const rowAttributes = inspectorAttributes(context, "multiline", rowSource, sourceRange.start, sourceRange.end, rowId);
         let mathHtml = renderMath(resolveTexReferences(expandMacros(rowSource, config)), true).html;
         if (rowSource.includes("&")) {
           const cells = rowSource.split("&");
@@ -163,16 +234,20 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, i
           }).join("");
         }
         if (!rowSource.includes("&")) mathHtml = "<span class=\"equation-content math-anchor-center\" style=\"grid-column:2;grid-row:" + (rowIndex + 1) + ";\">" + mathHtml + "</span>";
-        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + ">" + mathHtml + number + "</div>";
+        return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + rowAttributes + ">" + mathHtml + number + "</div>";
       }).join("");
-      return put("<div class=\"math-block\" style=\"grid-template-columns:1fr repeat(" + maxCells + ",max-content) 1fr max-content;\">" + rendered + "</div>");
+      return put("<div class=\"math-block\"" + inspectorAttributes(context, "display", body, sourceRange.start, sourceRange.end) + " style=\"grid-template-columns:1fr repeat(" + maxCells + ",max-content) 1fr max-content;\">" + rendered + "</div>");
     } catch (error) {
       diagnostics.error("MATH_RENDER", String(error));
       return put("<div class=\"math-block math-error\">[math error]</div>");
     }
   });
-  text = text.replace(/\$([^$\n]+)\$/g, (_m, body: string) => {
-    try { return put(renderMath(resolveTexReferences(expandMacros(body, config)), false).html); }
+  text = text.replace(/\$([^$\n]+)\$/g, (match: string, body: string, offset: number) => {
+    try {
+      const sourceRange = mathSourceOffset(context, source, offset, match);
+      const rendered = renderMath(resolveTexReferences(expandMacros(body, config)), false).html;
+      return put(rendered.replace("<span class=\"math-render\"", "<span class=\"math-render\"" + inspectorAttributes(context, "inline", body, sourceRange.start, sourceRange.end)));
+    }
     catch (error) { diagnostics.error("MATH_RENDER", String(error)); return put("<span class=\"math-error\">[math error]</span>"); }
   });
   return { text, values };
@@ -282,7 +357,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
     return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   });
-  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context.ids, context.references);
+  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
   return { text: protectedMath.text, replacements };
 }
@@ -479,14 +554,23 @@ function validateTableMerges(source: string, diagnostics: Diagnostics): void {
   }
 }
 
-export function compile(source: string, file = "document.md"): CompileResult {
+export function compile(source: string, file = "document.md", options: CompileOptions = {}): CompileResult {
   const diagnostics = new Diagnostics();
   const loaded = loadConfig(source, file, diagnostics);
   validateTableMerges(loaded.body, diagnostics);
   const extractedStyles = extractStyleBlocks(loaded.body, diagnostics);
   const importedStyles = loadImportedStyles(loaded.config, file, diagnostics);
   const styleCss = renderStyleCss(extractedStyles, importedStyles);
-  const context: RenderContext = { counters: new Map(), ids: new Set(), references: new Map(), figures: 0, sourceFile: file };
+  const context: RenderContext = {
+    counters: new Map(),
+    ids: new Set(),
+    references: new Map(),
+    figures: 0,
+    sourceFile: file,
+    sourceText: source,
+    config: loaded.config,
+    mathInspector: options.mathInspector ? { sourceText: source, sourceFile: file, cursor: 0, ordinal: 0 } : undefined,
+  };
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
   let html = renderMarkdownBody(extractedStyles.body, loaded.config, context, diagnostics);
   html = html.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
@@ -535,6 +619,6 @@ export function compile(source: string, file = "document.md"): CompileResult {
   return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
 
-export function compileFile(file: string): CompileResult {
-  return compile(fs.readFileSync(file, "utf8"), path.resolve(file));
+export function compileFile(file: string, options: CompileOptions = {}): CompileResult {
+  return compile(fs.readFileSync(file, "utf8"), path.resolve(file), options);
 }

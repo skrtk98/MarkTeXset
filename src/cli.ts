@@ -80,15 +80,18 @@ function preview(args: string[]): void {
   const input = requireMarkdownInput(args[0]);
   let port = 3000;
   let host = "127.0.0.1";
+  let mathInspector: boolean | undefined;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "-p" || args[i] === "--port") port = Number(args[++i]);
     else if (args[i] === "--host") host = args[++i] ?? usage("Missing host.");
+    else if (args[i] === "--math-inspector") mathInspector = true;
+    else if (args[i] === "--no-math-inspector") mathInspector = false;
     else usage("Unknown option '" + args[i] + "'.");
   }
   if (!Number.isInteger(port) || port < 1 || port > 65535) usage("Port must be an integer from 1 to 65535.");
   if (!net.isIP(host) && !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host)) usage("Host is not a valid IP address or hostname.");
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") console.error("Warning: preview is accessible from clients that can reach " + host + ".");
-  startPreview({ input, port, host }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
+  startPreview({ input, port, host, mathInspector }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {

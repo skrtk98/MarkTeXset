@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { chromium } from "playwright";
 import WebSocket from "ws";
 import { compile } from "../src/compiler.js";
 import { Diagnostics } from "../src/diagnostics.js";
@@ -22,6 +23,31 @@ test("renders inline and block math inside Callouts", () => {
   const result = compile("> [!theorem] A theorem\n> Inline $x^2$ and:\n>\n> $$a^2+b^2=c^2$$\n");
   assert.equal(result.diagnostics.hasErrors, false);
   assert.ok((result.html.match(/MathJax/g) ?? []).length >= 2);
+});
+
+test("emits Preview-only math inspector metadata for inline, block, multiline, and Callout math", () => {
+  const source = "# Sample\n\nInline $x^2$.\n\n$$a&=b \\\\ c&=d \\label{eq:sample}$$\n\n> [!remark]\n> Callout $y^2$.\n";
+  const normal = compile(source, "/tmp/math-inspector.md");
+  const preview = compile(source, "/tmp/math-inspector.md", { mathInspector: true });
+  assert.doesNotMatch(normal.html, /data-mathmd-math-id/);
+  assert.equal((preview.html.match(/data-mathmd-math-id=/g) ?? []).length, 5);
+  assert.match(preview.html, /data-mathmd-math-kind="inline"/);
+  assert.match(preview.html, /data-mathmd-math-kind="display"/);
+  assert.match(preview.html, /data-mathmd-math-kind="multiline"/);
+  assert.match(preview.html, /data-mathmd-tex="x\^2"/);
+  assert.match(preview.html, /data-mathmd-source-start="\{&quot;line&quot;:3/);
+  assert.match(preview.html, /data-mathmd-row-id="row-0"/);
+  assert.match(preview.html, /data-mathmd-source-file="\.\.\/\.\.\/\.\.\/\.\.\/tmp\/math-inspector\.md"/);
+});
+
+test("validates math inspector configuration and supports disabling it", () => {
+  const diagnostics = new Diagnostics();
+  const disabled = compile("---\nmathmd:\n  preview:\n    math-inspector:\n      enabled: false\n---\n$x$", "document.md");
+  assert.equal(disabled.diagnostics.hasErrors, false);
+  assert.doesNotMatch(disabled.html, /data-mathmd-math-id/);
+  loadConfig("---\nmathmd:\n  preview:\n    math-inspector:\n      panel: bottom\n      unknown: true\n---\ntext", "document.md", diagnostics);
+  assert.ok(diagnostics.items.some((item) => item.code === "UNKNOWN_CONFIG_KEY"));
+  assert.ok(diagnostics.items.some((item) => item.code === "UNSUPPORTED_INSPECTOR_PANEL"));
 });
 
 test("supports tikzcd fences and TeX equation references", () => {
@@ -367,6 +393,52 @@ test("preview broadcasts phase-two layout diagnostics", async () => {
     });
     assert.ok(diagnostics.some((item) => item.code === "LAYOUT_OVERFLOW"));
   } finally {
+    child.kill("SIGTERM");
+  }
+});
+
+test("preview math inspector selects a formula and shows TeX, DOM, and computed style", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-inspector-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, "# Inspector\n\nInline $x^2$.\n\n> [!remark]\n> Callout $y$.\n");
+  const port = 34673;
+  const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("preview inspector did not start")), 30000);
+      child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
+      child.on("error", reject);
+    });
+    const page = await browser.newPage();
+    await page.goto("http://127.0.0.1:" + port + "/", { waitUntil: "domcontentloaded" });
+    const inspector = page.locator("#marktexset-math-inspector");
+    const toggle = inspector.getByRole("button", { name: "Math inspector: Off" });
+    await toggle.click();
+    const formula = page.locator("[data-mathmd-math-kind=\"inline\"]").first();
+    assert.equal(await formula.getAttribute("tabindex"), "0");
+    await formula.focus();
+    await page.keyboard.press("Enter");
+    await assert.doesNotReject(async () => inspector.getByText("Original TeX").waitFor());
+    assert.equal(await inspector.getByText("x^2").count(), 1);
+    assert.equal(await inspector.getByText(/Start:/).count(), 1);
+    assert.equal(await inspector.getByText(/Numbered:/).count(), 1);
+    assert.equal(await inspector.getByText("Rendered DOM").count(), 1);
+    assert.equal(await inspector.getByText("Computed style").count(), 1);
+    assert.equal(await inspector.locator(".math-overlay").count(), 0);
+    const overlayVisible = await page.evaluate(() => {
+      const host = document.querySelector("#marktexset-math-inspector") as HTMLElement | null;
+      return Boolean(host?.shadowRoot?.querySelector(".panel.open"));
+    });
+    assert.equal(overlayVisible, true);
+    const panelPosition = await page.evaluate(() => {
+      const host = document.querySelector("#marktexset-math-inspector") as HTMLElement | null;
+      const panel = host?.shadowRoot?.querySelector(".panel") as HTMLElement | null;
+      return panel ? getComputedStyle(panel).bottom : "";
+    });
+    assert.notEqual(panelPosition, "");
+  } finally {
+    await browser.close();
     child.kill("SIGTERM");
   }
 });

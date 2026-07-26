@@ -39,11 +39,25 @@ const DEFAULT_CONFIG: Config = {
   command: { macros: {}, operators: {} },
   style: { import: [] },
   code: { theme: "github-light" },
+  preview: {
+    "math-inspector": {
+      enabled: true,
+      open: false,
+      panel: "right",
+      source: true,
+      tex: true,
+      dom: true,
+      styles: true,
+      computed: true,
+      diagnostics: true,
+      "pseudo-states": true,
+    },
+  },
   network: { allow: false, domains: [] },
 };
 
-const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "style", "code", "network"]);
-const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "style", "code", "network"]);
+const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "style", "code", "preview", "network"]);
+const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "style", "code", "preview", "network"]);
 const NUMBER_FORMATS = new Set(["arabic", "roman", "Roman", "alph", "Alph"]);
 const CALLOUT_STYLES = new Set(["plain", "definition", "remark", "proof"]);
 const OPERATOR_FONTS = new Set(["mathrm", "mathcal", "mathbb"]);
@@ -123,6 +137,8 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
   unknownNested(value.style, ["import"], "style", file, source, diagnostics);
   unknownNested(value.code, ["theme"], "code", file, source, diagnostics);
+  unknownNested(value.preview, ["math-inspector"], "preview", file, source, diagnostics);
+  unknownNested(value.preview?.["math-inspector"], ["enabled", "open", "panel", "source", "tex", "dom", "styles", "computed", "diagnostics", "pseudo-states"], "preview.math-inspector", file, source, diagnostics);
   if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
   if (isRecord(value.command?.operators)) for (const [name, definition] of Object.entries(value.command.operators)) unknownNested(definition, ["text", "font", "limits", "redef"], "command.operators." + name, file, source, diagnostics);
 }
@@ -184,6 +200,14 @@ function validateValueShape(value: Record<string, any>, file: string, source: st
   }
   if (value.network?.domains !== undefined && (!Array.isArray(value.network.domains) || value.network.domains.some((domain: unknown) => typeof domain !== "string"))) diagnostics.error("INVALID_NETWORK_DOMAINS", "network.domains must be a list of strings.", locationFor(source, file, 0));
   if (value.style?.import !== undefined && (!Array.isArray(value.style.import) || value.style.import.some((item: unknown) => typeof item !== "string"))) diagnostics.error("CSS_IMPORT_CONFIG", "style.import must be a list of strings.", locationFor(source, file, 0));
+  const inspector = value.preview?.["math-inspector"];
+  if (inspector !== undefined && !isRecord(inspector)) diagnostics.error("INVALID_CONFIG_TYPE", "preview.math-inspector must be a mapping.", locationFor(source, file, 0));
+  if (isRecord(inspector)) {
+    for (const key of ["enabled", "open", "source", "tex", "dom", "styles", "computed", "diagnostics", "pseudo-states"]) {
+      if (inspector[key] !== undefined && typeof inspector[key] !== "boolean") diagnostics.error("INVALID_CONFIG_TYPE", "preview.math-inspector." + key + " must be boolean.", locationFor(source, file, 0));
+    }
+    if (inspector.panel !== undefined && inspector.panel !== "right") diagnostics.error("UNSUPPORTED_INSPECTOR_PANEL", "Only the right math inspector panel is supported.", locationFor(source, file, 0));
+  }
   validateMargins(value.layout?.margins, file, source, diagnostics);
   validateLayout(value.layout, file, source, diagnostics);
   validateCommands(value.command, file, source, diagnostics);
