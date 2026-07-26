@@ -2,7 +2,7 @@
 
 **状態:** 確定版  
 **対象:** フェーズ1から最終フェーズまで  
-**更新日:** 2026-07-16
+**更新日:** 2026-07-26
 
 この文書を MarkTeXset の唯一の現行仕様書とする。`docs/old/` 配下は過去の設計・レビュー記録であり、仕様判断の根拠として参照しない。
 
@@ -124,6 +124,58 @@ marktexset preview <input.md> [options]
 {"type":"diagnostics","revision":12,"diagnostics":[]}
 ```
 
+### 2.2 Preview 数式インスペクタ
+
+Preview では、ブラウザの開発者ツール Elements に近い読み取り専用の数式インスペクタを提供する。ツールバーのトグルで有効化し、ON の間は数式へのホバーで候補をハイライト、クリックで選択を確定する。既定では機能を有効にするが、パネルは閉じて起動する。CLI の `--math-inspector` / `--no-math-inspector` は YAML より優先し、`--no-math-inspector` または `enabled: false` の場合はインスペクタ属性、ソースマップ、専用 API を生成しない。
+
+```yaml
+mathmd:
+  preview:
+    math-inspector:
+      enabled: true
+      open: false
+      panel: right
+      source: true
+      tex: true
+      dom: true
+      styles: true
+      computed: true
+      diagnostics: true
+      pseudo-states: true
+```
+
+`mathmd.preview.math-inspector` は上記項目を持つ map とする。不正値はエラー、未知キーは警告して無視する。`open: true` はパネルだけを開き、数式は自動選択しない。画面幅が狭い場合は右パネルを下部ドロワーへ切り替え、選択対象へ自動スクロールする。複数タブは選択・パネル状態を共有せず、状態は同一 Preview セッション内だけ保持する。
+
+対象はインライン数式、独立数式、複数行数式、Callout・表・脚注内の数式とする。数式ブロックと各行はそれぞれ選択でき、数式番号・番号表示領域・参照リンクも独立した選択対象とする。参照リンクを選択した場合は対象数式を選択し、参照元、参照先、表示文字列を表示する。
+
+選択時は通常のレイアウトを変更せず、枠線・半透明背景・スクロール追従オーバーレイで描画結果をハイライトする。DOM ツリーと Preview の選択は双方向に同期し、文書階層から Callout 等の親要素、数式ブロック、行、SVG/MathML 要素までのパンくずを表示する。選択は原則一つとし、親子要素はパンくずで移動する。Tab、Enter、Space、Escape によるキーボード操作にも対応する。
+
+パネルは `Source`、`TeX`、`DOM`、`Styles`、`Computed`、`Diagnostics` で構成する。初期状態では `Source`、`TeX`、`Diagnostics` を展開し、他は折りたたむ。パネルには次を表示する。
+
+- 入力された元 TeX、ファイル名、1 始まりの行・列、ブロック種別、`\label`、番号状態、適用設定。
+- 元 TeX のシンタックスハイライト。コマンド・引数・文字・空白を区別し、コマンドのホバーで対応する描画要素をハイライトする。
+- 生成された SVG と MathML の DOM ツリー。非表示の MathML も選択でき、両形式の対応要素を切り替えても選択を維持する。
+- class、適用 CSS、computed style。`Styles` と `Computed` を分け、プロパティ検索、分類、継承元、無効な宣言、セレクタ、宣言元を表示する。CSS の出典は相対パス・行・列・`@import` 元とし、組み込み CSS、ユーザー CSS、ブラウザ既定スタイルを区別する。
+- CSS 疑似クラスの現在状態、強制した一時状態、CSS 変数の使用箇所・解決値・継承元・フォールバック。
+- SVG/MathML 要素と元 TeX の対応範囲。`\frac` のように一つのコマンドが複数要素を生成する場合は全要素を、複数範囲に由来する要素は全範囲を対応付ける。対応不能時は近い親子要素へフォールバックし「近似対応」と表示する。
+- ユーザー定義マクロ・演算子の元コマンド、展開後 TeX、定義元。組み込み、ユーザー定義、`redef: true` による再定義済みを区別する。未知コマンドは診断し、認識範囲を通常対応、未知部分を近似対応とする。
+
+DOM 要素には次の安定した公開属性を付与する。ID は明示的な `\label` を別名として併用し、未指定時はファイル相対パス・種別・ソース情報から決定的に生成する。編集前後は内容ハッシュ等で可能な限り同じ ID と選択状態を維持する。
+
+```text
+data-mathmd-math-id
+data-mathmd-math-kind
+data-mathmd-source-start
+data-mathmd-source-end
+data-mathmd-row-id
+```
+
+`kind` は少なくとも `inline`、`display`、`multiline`、`callout`、`table`、`footnote`、`number`、`reference` を区別する。ソース範囲は `[start, end)` の半開区間、行・列は Unicode code point の 1 始まりとする。TeX のコピーは選択範囲を原文のまま、DOM・CSS 情報は表示中のフィルタを反映した構造化 JSON としてコピーする。
+
+インスペクタの詳細情報は HTML に最小限の属性だけを付与し、同一 Preview サーバーのバージョン付き専用 API から遅延取得する。API は `/__marktexset/*` 配下に置き、`GET /__marktexset/inspector/:mathId` と `GET /__marktexset/source?...` を提供する。レスポンスには `schemaVersion` を含める。API は同一オリジンかつワークスペース内に限定し、ソースは対象数式の前後の必要範囲だけを返して絶対パス・環境変数を露出しない。
+
+API・WebSocket障害時も本文を表示し、パネルに接続状態・失敗理由・再試行操作を表示する。更新で選択 ID が消えた場合は選択を解除し、その旨を表示する。ソースマップを生成できない数式は表示を継続し、数式全体を選択単位として「詳細対応なし」と表示する。Preview 本体はブラウザ非対応時も表示し、ツールバーに理由を示す。インスペクタ用メタデータは Preview の HTML にだけ出力し、build HTML と PDF には出力しない。
+
 ## 3. 設定と import
 
 ルート Markdown の先頭には、任意で一つだけ YAML Frontmatter を置ける。
@@ -178,6 +230,18 @@ mathmd:
       h1: "{h1.arabic}."
       h2: "{h1.arabic}.{h2.arabic}."
       h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}."
+  preview:
+    math-inspector:
+      enabled: true
+      open: false
+      panel: right
+      source: true
+      tex: true
+      dom: true
+      styles: true
+      computed: true
+      diagnostics: true
+      pseudo-states: true
     counter:
       max-depth: 3
     footnote:
@@ -444,6 +508,36 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 - Callout 内の表・画像・コード・脚注定義・入れ子
 - 画像キャプション、図番号、図参照
 - 取り消し線、タスクリスト、高度な日付フォーマット
+
+### フェーズ3.5 — Preview 数式インスペクタ
+
+数式の TeX コマンドとレンダリング結果を Preview 上で相互に検査する。実装は次の3段階で進め、build HTML と PDF の成果物にはインスペクタ情報を出力しない。
+
+#### フェーズ3.5-1 — 基本検査
+
+- ツールバーのON/OFF、`--math-inspector` / `--no-math-inspector`、YAML既定値とCLI優先順位
+- 数式・数式ブロック・行・番号・参照のホバー選択、クリック確定、枠線・半透明背景・スクロール追従ハイライト
+- 元TeX、ファイル名・行・列・ブロック種別・`\label`・番号状態・適用設定
+- SVG/MathML DOM、class、基本CSS、既存 Diagnostics のインスペクタ表示
+- キーボード操作、狭い画面の下部ドロワー、API・WebSocket障害時の本文維持
+
+#### フェーズ3.5-2 — 対応付けと操作
+
+- TeX範囲とSVG/MathML要素の双方向ソースマップ
+- 複数行のブロック／行情報、`&` / `&&` アライメント、番号・参照の詳細情報
+- Sourceパネル、DOMパンくず、SVG/MathML相互選択、TeX・構造化JSONのコピー
+- Callout、表、脚注を含む全数式、`\ref` / `\eqref`、未知コマンドの近似対応
+- 同一内容の編集時のID・選択状態維持と、消滅時の選択解除
+
+#### フェーズ3.5-3 — 詳細検査基盤
+
+- コマンド説明・定義元・マクロ展開後TeX、組み込み／ユーザー定義／再定義済みの区別
+- Styles / Computed の検索、分類、継承、無効宣言、CSS出典、scoped style境界
+- 疑似クラスの一時強制、CSS変数の解決情報、仮想スクロールと遅延取得
+- `data-mathmd-*` 公開属性、ソース座標系、`schemaVersion`付き専用API、同一オリジン・ワークスペース限定
+- ソースマップ欠落時の数式全体フォールバック、再接続・更新競合・非対応ブラウザの診断
+
+各段階では、数式ID・ソース範囲・SVG/MathML対応、Callout内数式、未知コマンド、API権限、更新時の選択解除を含む自動テストを追加する。
 
 ### フェーズ4 — 数学・拡張機構（実装済み）
 
