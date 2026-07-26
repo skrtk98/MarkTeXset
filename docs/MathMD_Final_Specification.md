@@ -170,6 +170,8 @@ data-mathmd-source-end
 data-mathmd-row-id
 ```
 
+フェーズ3.5-1では上記に加え、元TeX、`\label`、番号状態、適用設定を保持する `data-mathmd-tex`、`data-mathmd-label`、`data-mathmd-numbered`、`data-mathmd-settings` と、キーボード選択用の `tabindex="0"` を付与する。これらの属性は Preview 専用で、build HTML と PDF には出力しない。
+
 `kind` は少なくとも `inline`、`display`、`multiline`、`callout`、`table`、`footnote`、`number`、`reference` を区別する。ソース範囲は `[start, end)` の半開区間、行・列は Unicode code point の 1 始まりとする。TeX のコピーは選択範囲を原文のまま、DOM・CSS 情報は表示中のフィルタを反映した構造化 JSON としてコピーする。
 
 インスペクタの詳細情報は HTML に最小限の属性だけを付与し、同一 Preview サーバーのバージョン付き専用 API から遅延取得する。API は `/__marktexset/*` 配下に置き、`GET /__marktexset/inspector/:mathId` と `GET /__marktexset/source?...` を提供する。レスポンスには `schemaVersion` を含める。API は同一オリジンかつワークスペース内に限定し、ソースは対象数式の前後の必要範囲だけを返して絶対パス・環境変数を露出しない。
