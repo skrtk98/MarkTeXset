@@ -144,7 +144,7 @@ function inspectorAttributes(context: RenderContext, kind: string, tex: string, 
 function commandDetails(tex: string, config: Config): Array<{ name: string; kind: string; status: string; source: string; definition?: unknown }> {
   const macros = config.command?.macros ?? {};
   const operators = config.command?.operators ?? {};
-  const builtins = new Set(["frac", "sqrt", "sum", "prod", "int", "lim", "sin", "cos", "log", "exp", "text", "operatorname", "label", "ref", "eqref", "notag"]);
+  const builtins = new Set(["frac", "sqrt", "sum", "prod", "int", "lim", "sin", "cos", "log", "exp", "text", "operatorname", "label", "ref", "eqref", "notag", "left", "right", "mathbb", "mathcal", "mathrm", "mathbf", "mathsf", "mathtt", "overline", "underline", "begin", "end"]);
   const names = [...tex.matchAll(/\\([A-Za-z]+)/g)].map((match) => match[1]).filter((name, index, all) => all.indexOf(name) === index);
   return names.map((name) => {
     const macro = macros[name];
@@ -154,6 +154,18 @@ function commandDetails(tex: string, config: Config): Array<{ name: string; kind
     const status = definition?.redef ? "redefined" : macro || operator ? "user" : builtins.has(name) ? "builtin" : "unknown";
     return { name: "\\" + name, kind, status, source: macro || operator ? "YAML command." + (macro ? "macros." : "operators.") + name : builtins.has(name) ? "built-in" : "unresolved", definition };
   });
+}
+
+function diagnoseMathCommands(source: string, config: Config, diagnostics: Diagnostics, file: string): void {
+  const seen = new Set<string>();
+  for (const match of source.matchAll(/\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$/g)) {
+    const tex = match[1] ?? match[2] ?? "";
+    const offset = match.index ?? 0;
+    for (const command of commandDetails(tex, config)) if (command.status === "unknown" && !seen.has(command.name + "@" + offset)) {
+      seen.add(command.name + "@" + offset);
+      diagnostics.warning("UNKNOWN_TEX_COMMAND", "Unknown TeX command '" + command.name + "'; rendering may be approximate.", locationFor(source, file, offset, offset + match[0].length));
+    }
+  }
 }
 
 function mathSourceOffset(context: RenderContext, source: string, offset: number, body: string): { start: number; end: number } {
@@ -606,6 +618,7 @@ function validateTableMerges(source: string, diagnostics: Diagnostics): void {
 export function compile(source: string, file = "document.md", options: CompileOptions = {}): CompileResult {
   const diagnostics = new Diagnostics();
   const loaded = loadConfig(source, file, diagnostics);
+  diagnoseMathCommands(source, loaded.config, diagnostics, file);
   validateTableMerges(loaded.body, diagnostics);
   const extractedStyles = extractStyleBlocks(loaded.body, diagnostics);
   const importedStyles = loadImportedStyles(loaded.config, file, diagnostics);

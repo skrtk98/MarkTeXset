@@ -46,11 +46,15 @@ function pdfHtml(html: string, config: Record<string, any>, baseDirectory: strin
   const pageNumber = config.layout?.page?.number?.visible === false || pageStyle === "empty" ? "none" : pageContent(config);
   const pageHeader = pageStyle === "headings" ? "string(marktex-section)" : "none";
   const phaseTwoCss = `<style>
-@page { size: A4; margin: ${margins}; @top-center { content: ${pageHeader}; font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
+@page, @page plain { size: A4; margin: ${margins}; @top-center { content: ${pageHeader}; font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
+@page empty { size: A4; margin: ${margins}; @top-center { content: none; } @bottom-center { content: none; } }
+@page headings { size: A4; margin: ${margins}; @top-center { content: string(marktex-section); font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
 html, body { margin: 0 !important; max-width: none !important; }
 body { font-family: serif; }
 .mathmd-pagebreak { break-before: page; page-break-before: always; height: 0; }
-.mathmd-pagestyle[data-name="empty"] { break-after: avoid; }
+.mathmd-pagestyle[data-name="empty"] { page: empty; }
+.mathmd-pagestyle[data-name="plain"] { page: plain; }
+.mathmd-pagestyle[data-name="headings"] { page: headings; }
  .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
 .code-copy { display: none !important; }

@@ -75,6 +75,11 @@ test("supports additional MathJax font commands", () => {
   assert.match(result.html, /class=\"MathJax\"/);
 });
 
+test("diagnoses unknown TeX commands", () => {
+  const result = compile("Inline $\\unknowncommand{x}$.");
+  assert.ok(result.diagnostics.items.some((item) => item.code === "UNKNOWN_TEX_COMMAND" && item.severity === "warning"));
+});
+
 test("supports phase-four custom Callout styles and safe HTML attributes", () => {
   const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      theorem:\n        title: Custom theorem\n        style: custom-theorem\n        class: highlighted\n---\n# Heading {#heading .lead role=\"doc-subtitle\" data-kind=\"phase4\"}\n\n> [!theorem] Example {#custom aria-label=\"Custom theorem\"}\n> Body\n");
   assert.equal(result.diagnostics.hasErrors, false);
