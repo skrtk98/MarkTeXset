@@ -235,6 +235,7 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   if (position !== undefined && position !== "bottom-center") {
     diagnostics.error("UNSUPPORTED_PAGE_POSITION", "Only bottom-center is supported in phase 1.", locationFor(source, file, 0));
   }
+  if (layout.page?.style !== undefined && !["empty", "plain", "headings"].includes(String(layout.page.style))) diagnostics.error("UNSUPPORTED_PAGE_STYLE", "Page style must be empty, plain, or headings.", locationFor(source, file, 0));
   for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"]] as Array<[string, unknown, string]>) {
     if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set([counter]));
   }

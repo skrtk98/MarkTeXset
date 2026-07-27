@@ -247,6 +247,14 @@ test("validates nested configuration keys and timezones", () => {
   assert.ok(codes.includes("INVALID_TIMEZONE"));
 });
 
+test("validates supported page styles and suppresses numbering for empty style", () => {
+  const invalid = compile("---\nmathmd:\n  layout:\n    page:\n      style: fancy\n---\ntext\n");
+  assert.ok(invalid.diagnostics.items.some((item) => item.code === "UNSUPPORTED_PAGE_STYLE"));
+  const empty = compile("---\nmathmd:\n  layout:\n    page:\n      style: empty\n---\ntext\n");
+  assert.equal(empty.diagnostics.hasErrors, false);
+  assert.match(empty.config.layout.page.style, /empty/);
+});
+
 test("numbers multiline equations per row, preserves alignment gaps, and supports code blocks in Callouts", () => {
   const result = compile("---\nmathmd:\n  layout:\n    equation:\n      numbered: true\n---\n$$a&=b&&c&=d \\label{eq:first}\\\\e&=f&&g&=h \\notag$$\n\n> [!remark]\n> ```js\n> code\n> ```\n");
   assert.equal((result.html.match(/class="equation-number"/g) ?? []).length, 1);

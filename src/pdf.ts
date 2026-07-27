@@ -42,9 +42,11 @@ function embedLocalImages(html: string, baseDirectory: string): string {
 
 function pdfHtml(html: string, config: Record<string, any>, baseDirectory: string): string {
   const margins = pageMargins(config.layout?.margins);
-  const pageNumber = config.layout?.page?.number?.visible === false ? "none" : pageContent(config);
+  const pageStyle = String(config.layout?.page?.style ?? "plain");
+  const pageNumber = config.layout?.page?.number?.visible === false || pageStyle === "empty" ? "none" : pageContent(config);
+  const pageHeader = pageStyle === "headings" ? "string(marktex-section)" : "none";
   const phaseTwoCss = `<style>
-@page { size: A4; margin: ${margins}; @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
+@page { size: A4; margin: ${margins}; @top-center { content: ${pageHeader}; font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
 html, body { margin: 0 !important; max-width: none !important; }
 body { font-family: serif; }
 .mathmd-pagebreak { break-before: page; page-break-before: always; height: 0; }
@@ -57,10 +59,11 @@ pre, table, .callout, .math-block, img { break-inside: avoid; max-width: 100%; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 p { break-inside: avoid; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+.mathmd-page-style-headings h1, .mathmd-page-style-headings h2 { string-set: marktex-section content(text); }
 .table-of-contents { break-inside: avoid; }
 @media print { .mathmd-pagebreak { break-before: page; page-break-before: always; } }
 </style>`;
-  return embedLocalImages(html.replace("<head>", "<head><base href=\"" + pathToFileURL(baseDirectory + path.sep).href + "\">").replace("</head>", phaseTwoCss + "</head>"), baseDirectory);
+  return embedLocalImages(html.replace("<head>", "<head><base href=\"" + pathToFileURL(baseDirectory + path.sep).href + "\">").replace("<body>", "<body class=\"mathmd-page-style-" + pageStyle + "\">").replace("</head>", phaseTwoCss + "</head>"), baseDirectory);
 }
 
 export interface LayoutDiagnostic { code: string; message: string; }
