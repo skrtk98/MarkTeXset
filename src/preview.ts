@@ -9,6 +9,28 @@ interface PreviewOptions { input: string; port: number; host: string; mathInspec
 
 function json(value: unknown): string { return JSON.stringify(value); }
 
+function inspectorRecord(html: string, mathId: string): Record<string, unknown> | undefined {
+  const escaped = mathId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp("<[^>]+data-mathmd-math-id=\\\"" + escaped + "\\\"[^>]*>"));
+  if (!match) return undefined;
+  const attrs: Record<string, string> = {};
+  for (const item of match[0].matchAll(/(data-mathmd-[a-z-]+)=\"([^\"]*)\"/g)) attrs[item[1]] = item[2].replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  const parsed = (name: string, fallback: unknown = "") => { try { return attrs[name] === undefined ? fallback : JSON.parse(attrs[name]); } catch { return attrs[name] ?? fallback; } };
+  return {
+    schemaVersion: 1, mathId,
+    kind: attrs["data-mathmd-math-kind"] ?? "math",
+    source: { file: attrs["data-mathmd-source-file"] ?? "document.md", start: parsed("data-mathmd-source-start", {}), end: parsed("data-mathmd-source-end", {}), context: attrs["data-mathmd-source-context"] ?? "" },
+    tex: attrs["data-mathmd-tex"] ?? "", label: attrs["data-mathmd-label"] ?? "", numbered: parsed("data-mathmd-numbered", false), number: attrs["data-mathmd-number"] ?? undefined,
+    settings: parsed("data-mathmd-settings", {}), sourceMap: parsed("data-mathmd-source-map", []), alignment: parsed("data-mathmd-alignment", []), references: parsed("data-mathmd-references", []), notag: parsed("data-mathmd-notag", false), rowId: attrs["data-mathmd-row-id"],
+    commands: parsed("data-mathmd-commands", []), expansion: attrs["data-mathmd-expansion"] ?? "",
+  };
+}
+
+function inspectorResponse(response: http.ServerResponse, status: number, value: unknown): void {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+  response.end(json(value));
+}
+
 function clientScript(): string {
   return "(function(){var overlay,root;function show(ds){if(!ds.length){if(overlay){overlay.remove();overlay=null;root=null}return}if(!overlay){overlay=document.createElement('aside');overlay.id='marktexset-diagnostics';overlay.style='position:fixed;z-index:99999;right:0;top:0;max-width:42em;max-height:90vh;overflow:auto;background:#fff0f0;border:2px solid #c00;padding:1em;font:14px sans-serif;box-shadow:0 2px 8px #555';root=overlay.attachShadow({mode:'open'});document.body.appendChild(overlay)}root.innerHTML='<style>:host{display:block}button{float:right}div{border-top:1px solid #ccc;padding:.5em 0}</style><button id=\"marktexset-close\">×</button><h2>Diagnostics</h2>'+ds.map(function(d){return '<div style=\"color:'+(d.severity==='error'?'#a00':'#a60')+'\"><b>'+d.severity.toUpperCase()+' '+d.code+'</b><br>'+d.message+(d.location?'<br>'+d.location.file+':'+d.location.start.line+':'+d.location.start.column:'')+'</div>'}).join('');root.querySelector('#marktexset-close').onclick=function(){overlay.remove();overlay=null;root=null}}function connect(){var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/__marktexset/ws');ws.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='diagnostics')show(m.diagnostics);if(m.type==='reload'){var y=scrollY;fetch('/',{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){document.open();document.write(t);document.close();scrollTo(0,y)})}};ws.onclose=function(){setTimeout(connect,500)}}fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])});connect()})();";
 }
@@ -38,6 +60,11 @@ function mathInspectorScript(open: boolean): string {
       'if(!active||host.contains(e.target))return;var link=e.target.closest("[data-mathmd-reference-target]");if(link){e.preventDefault();var target=document.getElementById(link.getAttribute("data-mathmd-reference-target"));if(target){referenceInfo="Reference: "+(link.textContent||"")+" → #"+link.getAttribute("data-mathmd-reference-target");selected=target;selectedMeta=mathNode(target)||target;panel.classList.add("open");render()}return}var n=mathNode(e.target);if(n){e.preventDefault();selected=n;selectedMeta=n;panel.classList.add("open");render()}});')
     .replace('summary.textContent=(meta.getAttribute("data-mathmd-math-id")||"")+" · "+(meta.getAttribute("data-mathmd-math-kind")||"math");',
       'summary.textContent=(referenceInfo?referenceInfo+" · ":"")+(meta.getAttribute("data-mathmd-math-id")||"")+" · "+(meta.getAttribute("data-mathmd-math-kind")||"math");')
+    .replace('renderDiagnostics()}function setActive',
+      'renderDiagnostics();loadRecord(meta)}function loadRecord(meta){var id=meta.getAttribute("data-mathmd-math-id")||"";fetch("/__marktexset/inspector/"+encodeURIComponent(id),{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("Inspector API returned "+r.status);return r.json()}).then(function(record){if(record.schemaVersion!==1)throw new Error("Unsupported inspector schemaVersion");var t=box("tex");var h=t.querySelector("h3");var c=document.createElement("h3");c.textContent="Commands and expansion";t.appendChild(c);var commands=document.createElement("div");commands.className="value";commands.textContent=(record.commands||[]).map(function(x){return x.name+" ["+x.status+"] — "+x.source}).join("\\n")||"No commands.";t.appendChild(commands);if(record.expansion&&record.expansion!==record.tex){var ex=document.createElement("div");ex.className="value";ex.textContent="Expanded TeX\\n"+record.expansion;t.appendChild(ex)}var st=box("styles");var sh=document.createElement("h3");sh.textContent="Matched CSS rules";st.replaceChildren(sh);var rules=[];Array.from(document.styleSheets).forEach(function(sheet){try{Array.from(sheet.cssRules||[]).forEach(function(rule){if(rule.selectorText&&meta.matches(rule.selectorText))rules.push((sheet.ownerNode&&sheet.ownerNode.getAttribute("data-mathmd-style-origin")||"author")+" | "+rule.selectorText+" | "+rule.style.cssText)})}catch(e){}});var rs=document.createElement("div");rs.className="value";rs.textContent=rules.join("\\n")||"No matched CSS rule.";st.appendChild(rs);var co=box("computed");["hover","focus","active"].forEach(function(state){var pb=document.createElement("button");pb.textContent=":"+state;pb.onclick=function(){var attr="data-mathmd-pseudo-"+state;if(meta.hasAttribute(attr))meta.removeAttribute(attr);else meta.setAttribute(attr,"");position(selected)};co.appendChild(pb)});var search=document.createElement("input");search.type="search";search.placeholder="Filter computed properties";search.setAttribute("aria-label","Filter computed properties");var cv=co.querySelector(".value");if(cv){var rows=Array.from(cv.children);search.oninput=function(){rows.forEach(function(row){row.hidden=!!search.value&&!row.textContent.toLowerCase().includes(search.value.toLowerCase())})};co.insertBefore(search,cv)}var vars=Object.keys(record).filter(function(k){return k.indexOf("--")===0});if(vars.length)rs.textContent+="\\nCSS variables: "+vars.join(", ");}).catch(function(error){var st=box("styles");var e=document.createElement("div");e.className="diagnostic error";e.textContent="Inspector details unavailable: "+error.message+" (retry by selecting the formula again)";st.appendChild(e)})}function setActive')
+    .replace('renderDiagnostics();loadRecord(meta)', 'renderDiagnostics();["hover","focus","active"].forEach(function(state){var pb=document.createElement("button");pb.textContent=":"+state;pb.onclick=function(){var attr="data-mathmd-pseudo-"+state;if(meta.hasAttribute(attr))meta.removeAttribute(attr);else meta.setAttribute(attr,"");position(selected)};box("computed").appendChild(pb)});loadRecord(meta)')
+    .replace('var co=box("computed");co.replaceChildren();co.appendChild(document.createElement("h3")).textContent="Computed style";',
+      'var co=box("computed");co.replaceChildren();co.appendChild(document.createElement("h3")).textContent="Computed style";var pseudo=document.createElement("div");pseudo.className="tabs";["hover","focus","active"].forEach(function(state){var pb=document.createElement("button");pb.textContent=":"+state;pb.onclick=function(){var attr="data-mathmd-pseudo-"+state;if(meta.hasAttribute(attr)){meta.removeAttribute(attr);pb.setAttribute("aria-pressed","false")}else{meta.setAttribute(attr,"");pb.setAttribute("aria-pressed","true")}position(selected)};pseudo.appendChild(pb)});co.appendChild(pseudo);')
   return withDetails.replace("__OPEN__", String(open));
 }
 
@@ -123,6 +150,16 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   refreshWatchers();
   const server = http.createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname.startsWith("/__marktexset/inspector/") || url.pathname === "/__marktexset/source") {
+      if (request.method !== "GET") { response.setHeader("Allow", "GET"); inspectorResponse(response, 405, { error: "method-not-allowed" }); return; }
+      if (!inspectorEnabled) { inspectorResponse(response, 404, { error: "math-inspector-disabled" }); return; }
+      const id = url.pathname.startsWith("/__marktexset/inspector/") ? decodeURIComponent(url.pathname.slice("/__marktexset/inspector/".length)) : (url.searchParams.get("mathId") ?? "");
+      const record = inspectorRecord(current.html, id);
+      if (!record) { inspectorResponse(response, 404, { schemaVersion: 1, error: "math-not-found", mathId: id, diagnostics: [{ code: "INSPECTOR_STALE_SELECTION", message: "The selected formula is no longer present; select it again." }] }); return; }
+      if (url.pathname === "/__marktexset/source") inspectorResponse(response, 200, { schemaVersion: 1, mathId: id, source: record.source });
+      else inspectorResponse(response, 200, record);
+      return;
+    }
     if (url.pathname === "/__marktexset/status") {
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(json({ revision, diagnostics: current.diagnostics.sorted(), state: current.diagnostics.hasErrors ? "error" : "ready" }));

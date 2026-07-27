@@ -436,6 +436,10 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     assert.equal(await inspector.getByText(/Context:/).count(), 1);
     assert.equal(await inspector.getByText("Rendered DOM").count(), 1);
     assert.equal(await inspector.getByText("Computed style").count(), 1);
+    assert.equal(await inspector.getByText("Commands and expansion").count(), 1);
+    assert.equal(await inspector.getByText("Matched CSS rules").count(), 1);
+    assert.equal(await inspector.getByPlaceholder("Filter computed properties").count(), 1);
+    assert.equal(await inspector.getByText(":hover").count(), 3);
     assert.equal(await inspector.getByText("Copy JSON").count(), 1);
     assert.ok(await inspector.locator("#tex .value span").count() > 0);
     assert.equal(await inspector.locator(".math-overlay").count(), 0);
@@ -483,4 +487,47 @@ test("preview math inspector follows an internal reference and maps a DOM node b
     await browser.close();
     child.kill("SIGTERM");
   }
+});
+
+test("preview math inspector exposes versioned details and rejects stale or unsafe source requests", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-inspector-api-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, String.raw`---
+mathmd:
+  command:
+    macros:
+      R: {args: 1, body: "\\mathbb{#1}"}
+---
+
+$$\\R{x}\\label{eq:x}$$
+`);
+  const port = 34675;
+  const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("inspector API preview did not start")), 30000);
+      child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
+      child.on("error", reject);
+    });
+    const base = "http://127.0.0.1:" + port;
+    try {
+      const html = await (await fetch(base + "/")).text();
+      assert.match(html, /data-mathmd-schema-version="1"/);
+      const id = html.match(/data-mathmd-math-id="([^"]+)"/)?.[1];
+      assert.ok(id);
+      const detail = await fetch(base + "/__marktexset/inspector/" + encodeURIComponent(id!));
+      assert.equal(detail.status, 200);
+      const record = await detail.json();
+      assert.equal(record.schemaVersion, 1);
+      assert.match(record.source.file, /document\.md$/);
+      assert.ok(record.commands.some((command: any) => command.name === "\\R" && command.status === "user"));
+      assert.match(record.expansion, /mathbb/);
+      const source = await fetch(base + "/__marktexset/source?mathId=" + encodeURIComponent(id!));
+      assert.equal(source.status, 200);
+      assert.equal((await source.json()).schemaVersion, 1);
+      assert.equal((await fetch(base + "/__marktexset/inspector/stale")).status, 404);
+      assert.equal((await fetch(base + "/__marktexset/source?path=" + encodeURIComponent("../../etc/passwd"))).status, 404);
+      assert.equal((await fetch(base + "/__marktexset/inspector/" + encodeURIComponent(id!), { method: "POST" })).status, 405);
+    } finally { /* the preview process is terminated below */ }
+  } finally { child.kill("SIGTERM"); }
 });

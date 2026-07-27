@@ -118,6 +118,7 @@ function inspectorAttributes(context: RenderContext, kind: string, tex: string, 
   const endPosition = sourcePosition(inspector.sourceText, end);
   const relativeFile = path.relative(process.cwd(), context.sourceFile) || path.basename(context.sourceFile);
   const attributes = [
+    ["data-mathmd-schema-version", "1"],
     ["data-mathmd-math-id", id],
     ["data-mathmd-math-kind", kind],
     ["data-mathmd-source-file", relativeFile],
@@ -132,10 +133,27 @@ function inspectorAttributes(context: RenderContext, kind: string, tex: string, 
     ["data-mathmd-alignment", JSON.stringify([...tex.matchAll(/&+/g)].map((match) => ({ offset: codePointLength(tex.slice(0, match.index ?? 0)), width: match[0].length })))],
     ["data-mathmd-references", JSON.stringify([...tex.matchAll(/\\(?:ref|eqref)\{([^}]+)\}/g)].map((match) => match[1]))],
     ["data-mathmd-notag", String(/\\notag\b/.test(tex))],
+    ["data-mathmd-commands", JSON.stringify(commandDetails(tex, context.config))],
+    ["data-mathmd-expansion", expandMacros(tex, context.config)],
     ["tabindex", "0"],
   ];
   if (rowId) attributes.push(["data-mathmd-row-id", rowId]);
   return attributes.map(([name, value]) => " " + name + "=\"" + escapeHtml(value) + "\"").join("");
+}
+
+function commandDetails(tex: string, config: Config): Array<{ name: string; kind: string; status: string; source: string; definition?: unknown }> {
+  const macros = config.command?.macros ?? {};
+  const operators = config.command?.operators ?? {};
+  const builtins = new Set(["frac", "sqrt", "sum", "prod", "int", "lim", "sin", "cos", "log", "exp", "text", "operatorname", "label", "ref", "eqref", "notag"]);
+  const names = [...tex.matchAll(/\\([A-Za-z]+)/g)].map((match) => match[1]).filter((name, index, all) => all.indexOf(name) === index);
+  return names.map((name) => {
+    const macro = macros[name];
+    const operator = operators[name];
+    const definition = macro ?? operator;
+    const kind = macro ? "macro" : operator ? "operator" : "command";
+    const status = definition?.redef ? "redefined" : macro || operator ? "user" : builtins.has(name) ? "builtin" : "unknown";
+    return { name: "\\" + name, kind, status, source: macro || operator ? "YAML command." + (macro ? "macros." : "operators.") + name : builtins.has(name) ? "built-in" : "unresolved", definition };
+  });
 }
 
 function mathSourceOffset(context: RenderContext, source: string, offset: number, body: string): { start: number; end: number } {
@@ -642,7 +660,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
   }
   html = resolveReferences(html, context.references, diagnostics, Boolean(context.mathInspector));
   html = applyScopedMarkers(html, extractedStyles);
-  if (styleCss) html = "<style>" + styleCss + "</style>" + html;
+  if (styleCss) html = "<style data-mathmd-style-origin=\"user\">" + styleCss + "</style>" + html;
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));
   return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:serif;max-width:180mm;margin:25mm auto;line-height:1.6}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font:0.9em monospace}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
 }
