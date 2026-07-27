@@ -81,6 +81,28 @@ function codePointLength(value: string): number {
   return Array.from(value).length;
 }
 
+function texSourceMap(tex: string): Array<{ start: number; end: number; type: string; text: string }> {
+  const tokens: Array<{ start: number; end: number; type: string; text: string }> = [];
+  const pattern = /\\[A-Za-z]+|\\.|[{}^_]|[^\s]/g;
+  for (const match of tex.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    const text = match[0];
+    const end = start + text.length;
+    const type = text.startsWith("\\") ? "command" : /^[{}^_]$/.test(text) ? "delimiter" : "text";
+    tokens.push({ start: codePointLength(tex.slice(0, start)), end: codePointLength(tex.slice(0, end)), type, text });
+  }
+  return tokens;
+}
+
+function sourceContext(source: string, start: number): string {
+  const lines = source.split(/\r?\n/);
+  const line = sourcePosition(source, start).line;
+  return lines.slice(Math.max(0, line - 3), Math.min(lines.length, line + 2)).map((value, index) => {
+    const number = Math.max(1, line - 2) + index;
+    return String(number).padStart(4, " ") + " | " + value;
+  }).join("\n");
+}
+
 function sourcePosition(source: string, offset: number): { line: number; column: number } {
   const prefix = source.slice(0, Math.max(0, offset));
   const line = (prefix.match(/\n/g) ?? []).length + 1;
@@ -105,6 +127,11 @@ function inspectorAttributes(context: RenderContext, kind: string, tex: string, 
     ["data-mathmd-label", tex.match(/\\label\{([^}]+)\}/)?.[1] ?? ""],
     ["data-mathmd-numbered", String(Boolean(context.config.layout?.equation?.numbered) || /\\label\{/.test(tex))],
     ["data-mathmd-settings", JSON.stringify({ equation: context.config.layout?.equation ?? {} })],
+    ["data-mathmd-source-context", sourceContext(inspector.sourceText, start)],
+    ["data-mathmd-source-map", JSON.stringify(texSourceMap(tex))],
+    ["data-mathmd-alignment", JSON.stringify([...tex.matchAll(/&+/g)].map((match) => ({ offset: codePointLength(tex.slice(0, match.index ?? 0)), width: match[0].length })))],
+    ["data-mathmd-references", JSON.stringify([...tex.matchAll(/\\(?:ref|eqref)\{([^}]+)\}/g)].map((match) => match[1]))],
+    ["data-mathmd-notag", String(/\\notag\b/.test(tex))],
     ["tabindex", "0"],
   ];
   if (rowId) attributes.push(["data-mathmd-row-id", rowId]);
@@ -214,7 +241,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
         const numberValue = numbered && !notag ? ++equation : 0;
-        const number = numberValue ? "<span class=\"equation-number\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">(" + numberValue + ")</span>" : "";
+        const number = numberValue ? "<span class=\"equation-number\"" + inspectorAttributes(context, "number", String(numberValue), sourceRange.start, sourceRange.end) + " data-mathmd-number=\"" + numberValue + "\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">(" + numberValue + ")</span>" : "";
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
@@ -532,13 +559,14 @@ function renderToc(html: string, config: Config): string {
   return "<nav class=\"table-of-contents\"><h2 class=\"toc-title\">" + escapeHtml(String(config.layout.heading.toc)) + "</h2><ul class=\"toc-list\">" + items + "</ul></nav>";
 }
 
-function resolveReferences(html: string, references: Map<string, string>, diagnostics: Diagnostics): string {
+function resolveReferences(html: string, references: Map<string, string>, diagnostics: Diagnostics, inspector?: boolean): string {
   return html.replace(/<a href=\"#([^\"]+)\">([\s\S]*?)<\/a>/g, (_match, id: string, text: string) => {
     if (!references.has(id)) {
       diagnostics.warning("UNRESOLVED_REFERENCE", "Reference '#" + id + "' could not be resolved.");
       return "<b class=\"diagnostic-missing\">" + (text || "#" + escapeHtml(id)) + "</b>";
     }
-    return text ? "<a href=\"#" + escapeHtml(id) + "\">" + text + "</a>" : "<a href=\"#" + escapeHtml(id) + "\">" + escapeHtml(references.get(id) ?? id) + "</a>";
+    const attrs = inspector ? " data-mathmd-math-kind=\"reference\" data-mathmd-reference-target=\"" + escapeHtml(id) + "\" data-mathmd-reference-text=\"" + escapeHtml(text || references.get(id) || id) + "\" tabindex=\"0\"" : "";
+    return text ? "<a href=\"#" + escapeHtml(id) + "\"" + attrs + ">" + text + "</a>" : "<a href=\"#" + escapeHtml(id) + "\"" + attrs + ">" + escapeHtml(references.get(id) ?? id) + "</a>";
   });
 }
 
@@ -612,7 +640,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html, loaded.config));
   }
-  html = resolveReferences(html, context.references, diagnostics);
+  html = resolveReferences(html, context.references, diagnostics, Boolean(context.mathInspector));
   html = applyScopedMarkers(html, extractedStyles);
   if (styleCss) html = "<style>" + styleCss + "</style>" + html;
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) diagnostic.location = locationFor(source, file, 0, Math.min(source.length, 1));

@@ -30,7 +30,7 @@ test("emits Preview-only math inspector metadata for inline, block, multiline, a
   const normal = compile(source, "/tmp/math-inspector.md");
   const preview = compile(source, "/tmp/math-inspector.md", { mathInspector: true });
   assert.doesNotMatch(normal.html, /data-mathmd-math-id/);
-  assert.equal((preview.html.match(/data-mathmd-math-id=/g) ?? []).length, 5);
+  assert.equal((preview.html.match(/data-mathmd-math-id=/g) ?? []).length, 6);
   assert.match(preview.html, /data-mathmd-math-kind="inline"/);
   assert.match(preview.html, /data-mathmd-math-kind="display"/);
   assert.match(preview.html, /data-mathmd-math-kind="multiline"/);
@@ -48,6 +48,16 @@ test("validates math inspector configuration and supports disabling it", () => {
   loadConfig("---\nmathmd:\n  preview:\n    math-inspector:\n      panel: bottom\n      unknown: true\n---\ntext", "document.md", diagnostics);
   assert.ok(diagnostics.items.some((item) => item.code === "UNKNOWN_CONFIG_KEY"));
   assert.ok(diagnostics.items.some((item) => item.code === "UNSUPPORTED_INSPECTOR_PANEL"));
+});
+
+test("emits row alignment, number, and internal reference metadata for the inspector", () => {
+  const result = compile("$$a&=b \\\\ c&=d \\label{eq:one}$$\n\nSee [equation](#eq:one).", "document.md", { mathInspector: true });
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /data-mathmd-alignment=/);
+  assert.match(result.html, /data-mathmd-row-id=\"row-1\"/);
+  assert.match(result.html, /data-mathmd-number=/);
+  assert.match(result.html, /data-mathmd-reference-target=\"eq:one\"/);
+  assert.match(result.html, /data-mathmd-reference-text=\"equation\"/);
 });
 
 test("supports tikzcd fences and TeX equation references", () => {
@@ -420,11 +430,14 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     await formula.focus();
     await page.keyboard.press("Enter");
     await assert.doesNotReject(async () => inspector.getByText("Original TeX").waitFor());
-    assert.equal(await inspector.getByText("x^2").count(), 1);
+    assert.ok(await inspector.getByText("x^2").count() >= 1);
     assert.equal(await inspector.getByText(/Start:/).count(), 1);
     assert.equal(await inspector.getByText(/Numbered:/).count(), 1);
+    assert.equal(await inspector.getByText(/Context:/).count(), 1);
     assert.equal(await inspector.getByText("Rendered DOM").count(), 1);
     assert.equal(await inspector.getByText("Computed style").count(), 1);
+    assert.equal(await inspector.getByText("Copy JSON").count(), 1);
+    assert.ok(await inspector.locator("#tex .value span").count() > 0);
     assert.equal(await inspector.locator(".math-overlay").count(), 0);
     const overlayVisible = await page.evaluate(() => {
       const host = document.querySelector("#marktexset-math-inspector") as HTMLElement | null;
@@ -437,6 +450,35 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
       return panel ? getComputedStyle(panel).bottom : "";
     });
     assert.notEqual(panelPosition, "");
+  } finally {
+    await browser.close();
+    child.kill("SIGTERM");
+  }
+});
+
+test("preview math inspector follows an internal reference and maps a DOM node back to TeX", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-inspector-reference-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, "$$x^2 \\label{eq:x}$$\n\nSee [formula](#eq:x).\n");
+  const port = 34674;
+  const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("reference inspector did not start")), 30000);
+      child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
+      child.on("error", reject);
+    });
+    const page = await browser.newPage();
+    await page.goto("http://127.0.0.1:" + port + "/", { waitUntil: "domcontentloaded" });
+    const inspector = page.locator("#marktexset-math-inspector");
+    await inspector.getByRole("button", { name: "Math inspector: Off" }).click();
+    await page.locator("[data-mathmd-reference-target=\"eq:x\"]").click();
+    assert.equal(await inspector.getByText(/Reference:/).count(), 1);
+    await page.locator("[data-mml-node]").first().click({ force: true });
+    assert.equal(await inspector.getByText("Rendered DOM").count(), 1);
+    assert.equal(await page.locator("div.math-overlay").isVisible(), true);
+    assert.ok(await inspector.locator("#tex .value span").count() > 0);
   } finally {
     await browser.close();
     child.kill("SIGTERM");
