@@ -610,6 +610,15 @@ export function compile(source: string, file = "document.md", options: CompileOp
   const extractedStyles = extractStyleBlocks(loaded.body, diagnostics);
   const importedStyles = loadImportedStyles(loaded.config, file, diagnostics);
   const styleCss = renderStyleCss(extractedStyles, importedStyles);
+  const pagebreakLines = extractedStyles.body.split(/\r?\n/).map((line, index) => ({ line: line.trim(), index })).filter((item) => item.line === "<pagebreak />");
+  const bodyLines = extractedStyles.body.split(/\r?\n/);
+  const firstContent = bodyLines.findIndex((line) => line.trim() !== "");
+  const lastContent = bodyLines.length - 1 - [...bodyLines].reverse().findIndex((line) => line.trim() !== "");
+  for (const item of pagebreakLines) {
+    const previous = bodyLines[item.index - 1]?.trim() ?? "";
+    const next = bodyLines[item.index + 1]?.trim() ?? "";
+    if (item.index === firstContent || item.index === lastContent || previous === "<pagebreak />" || next === "<pagebreak />") diagnostics.warning("EMPTY_PAGE", "A pagebreak creates an empty page.", locationFor(extractedStyles.body, file, extractedStyles.body.split(/\r?\n/).slice(0, item.index).join("\n").length));
+  }
   const context: RenderContext = {
     counters: new Map(),
     ids: new Set(),

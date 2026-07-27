@@ -352,6 +352,11 @@ test("control tags are self-closing HTML elements in the source language", () =>
   assert.match(result.html, /data-name=\"empty\"/);
 });
 
+test("warns when pagebreak placement creates an empty page", () => {
+  const result = compile("<pagebreak />\n\nText\n\n<pagebreak />\n\n<pagebreak />\n");
+  assert.ok(result.diagnostics.items.filter((item) => item.code === "EMPTY_PAGE").length >= 2);
+});
+
 test("build writes a sibling HTML file and does not overwrite without --force", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-build-"));
   const input = path.join(directory, "document.md");
