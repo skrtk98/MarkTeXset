@@ -339,6 +339,11 @@ test("renders an unresolved footnote without consuming a footnote number or link
   assert.doesNotMatch(result.html, /footnote-ref/);
 });
 
+test("rejects duplicate footnote definitions", () => {
+  const result = compile("[^same]: first\n\n[^same]: second\n\nReference[^same].\n");
+  assert.ok(result.diagnostics.items.some((item) => item.code === "DUPLICATE_FOOTNOTE" && item.severity === "error"));
+});
+
 test("control tags are self-closing HTML elements in the source language", () => {
   const result = compile("<maketoc />\n\n<pagebreak />\n\n<pagestyle name=\"empty\" />\n");
   assert.equal(result.diagnostics.hasErrors, false);

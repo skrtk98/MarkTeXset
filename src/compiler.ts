@@ -396,6 +396,9 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     output.push(line);
   }
   const footnoteDefinitions = new Set([...source.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+  const footnoteDefinitionCounts = new Map<string, number>();
+  for (const match of source.matchAll(/^\[\^([^\]]+)\]:/gm)) footnoteDefinitionCounts.set(match[1], (footnoteDefinitionCounts.get(match[1]) ?? 0) + 1);
+  for (const [label, count] of footnoteDefinitionCounts) if (count > 1) diagnostics.error("DUPLICATE_FOOTNOTE", "Footnote '" + label + "' is defined more than once.", locationFor(source, context.sourceFile, source.indexOf("[^" + label + "]:")));
   let commentSafeSource = output.join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment));
   commentSafeSource = commentSafeSource.replace(/\[\^([^\]]+)\]/g, (match, label: string) => {
     if (footnoteDefinitions.has(label)) return match;
