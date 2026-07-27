@@ -450,7 +450,13 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     assert.equal(await inspector.getByText("Commands and expansion").count(), 1);
     assert.equal(await inspector.getByText("Matched CSS rules").count(), 1);
     assert.equal(await inspector.getByPlaceholder("Filter computed properties").count(), 1);
-    assert.equal(await inspector.getByText(":hover").count(), 3);
+    assert.equal(await inspector.getByText(":hover").count(), 1);
+    await inspector.getByRole("button", { name: "Computed" }).click();
+    await inspector.locator("#computed button").filter({ hasText: ":hover" }).first().click();
+    assert.equal(await formula.getAttribute("data-mathmd-pseudo-hover"), "");
+    assert.equal(await page.locator("#marktexset-force-hover").count(), 1);
+    await inspector.locator("#computed button").filter({ hasText: ":hover" }).first().click();
+    assert.equal(await formula.getAttribute("data-mathmd-pseudo-hover"), null);
     assert.equal(await inspector.getByText("Copy JSON").count(), 1);
     assert.ok(await inspector.locator("#tex .value span").count() > 0);
     assert.equal(await inspector.getByText("Source map unavailable; formula-wide fallback is active.").count(), 1);
