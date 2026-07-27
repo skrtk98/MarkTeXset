@@ -685,7 +685,10 @@ export function compile(source: string, file = "document.md", options: CompileOp
   }
   html = resolveReferences(html, context.references, diagnostics, Boolean(context.mathInspector));
   html = applyScopedMarkers(html, extractedStyles);
-  if (styleCss) html = "<style data-mathmd-style-origin=\"user\">" + styleCss + "</style>" + html;
+  if (styleCss) {
+    const styleFiles = JSON.stringify((loaded.config.style?.import ?? []).filter((item: unknown): item is string => typeof item === "string"));
+    html = "<style data-mathmd-style-origin=\"user\" data-mathmd-style-files=\"" + escapeHtml(styleFiles) + "\">" + styleCss + "</style>" + html;
+  }
   for (const diagnostic of diagnostics.items) if (!diagnostic.location) {
     const candidates = [...diagnostic.message.matchAll(/'([^']+)'/g)].map((match) => match[1]).filter((value) => value.length > 0);
     const offset = candidates.map((value) => source.indexOf(value)).find((value) => value >= 0) ?? 0;

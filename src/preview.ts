@@ -70,6 +70,7 @@ function mathInspectorScript(open: boolean): string {
     .replace('pb.onclick=function(){var attr="data-mathmd-pseudo-"+state;if(meta.hasAttribute(attr))meta.removeAttribute(attr);else meta.setAttribute(attr,"");position(selected)};co.appendChild(pb)', 'pb.onclick=function(){forcePseudo(state,!meta.hasAttribute("data-mathmd-pseudo-"+state));position(selected)};co.appendChild(pb)')
     .replace('["display","position","width","height","margin","padding","font-size","font-family","color","background-color","border","line-height"].forEach(function(p){', 'Array.from(cs).forEach(function(p){')
     .replace('e.textContent="Inspector details unavailable: "+error.message+" (retry by selecting the formula again)";st.appendChild(e)', 'e.textContent="Inspector details unavailable: "+error.message;st.appendChild(e);var retry=document.createElement("button");retry.textContent="Retry";retry.onclick=function(){loadRecord(meta)};st.appendChild(retry)')
+    .replace('||"builtin")+" | "+rule.selectorText+" | "+rule.style.cssText', '||"builtin")+" | "+((sheet.ownerNode&&sheet.ownerNode.getAttribute("data-mathmd-style-files"))||"inline")+" | "+rule.selectorText+" | "+rule.style.cssText')
   return withDetails.replace("__OPEN__", String(open));
 }
 
