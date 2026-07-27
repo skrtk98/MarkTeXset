@@ -364,8 +364,6 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
   }
   const local = { ...root };
   delete local.import;
-  for (const name of Object.keys(local.command?.macros ?? {})) if (importedMacroNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Local macro '" + name + "' replaces an imported command.", locationFor(source, file, 0));
-  for (const name of Object.keys(local.command?.operators ?? {})) if (importedOperatorNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Local operator '" + name + "' replaces an imported command.", locationFor(source, file, 0));
   settings = merge(settings, local);
   const config = merge(DEFAULT_CONFIG, settings);
   normalizeConfig(config);

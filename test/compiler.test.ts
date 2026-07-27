@@ -202,11 +202,11 @@ test("supports root YAML, imports, last-wins values, and equation labels", () =>
   assert.match(result.html, /equation-number/);
 });
 
-test("rejects unknown counter formats and imported command replacement", () => {
+test("rejects unknown counter formats and imported command collisions", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-counter-import-"));
-  const imported = path.join(directory, "commands.yaml");
-  fs.writeFileSync(imported, "command:\n  macros:\n    foo: {args: 0, body: x}\n");
-  const source = "---\nmathmd:\n  import: [commands.yaml]\n  command:\n    macros:\n      foo: {args: 0, body: y}\n  layout:\n    page:\n      number:\n        format: '{page.binary}'\n    callouts:\n      theorem:\n        title: 'Theorem {unknown.arabic}'\n---\n";
+  fs.writeFileSync(path.join(directory, "commands-a.yaml"), "command:\n  macros:\n    foo: {args: 0, body: x}\n");
+  fs.writeFileSync(path.join(directory, "commands-b.yaml"), "command:\n  macros:\n    foo: {args: 0, body: z}\n");
+  const source = "---\nmathmd:\n  import: [commands-a.yaml, commands-b.yaml]\n  command:\n    macros:\n      foo: {args: 0, body: y}\n  layout:\n    page:\n      number:\n        format: '{page.binary}'\n    callouts:\n      theorem:\n        title: 'Theorem {unknown.arabic}'\n---\n";
   const result = compile(source, path.join(directory, "document.md"));
   assert.ok(result.diagnostics.items.some((item) => item.code === "INVALID_COUNTER_TEMPLATE"));
   assert.ok(result.diagnostics.items.some((item) => item.code === "COMMAND_NAME_COLLISION"));
