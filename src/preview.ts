@@ -43,7 +43,7 @@ function mathInspectorScript(open: boolean): string {
   const safeMarkup = script.slice(0, markupStart - 'shadow.innerHTML="'.length) + "shadow.innerHTML=" + JSON.stringify(markup) + ";" + script.slice(markupEnd + 2);
   const withDetails = safeMarkup
     .replace('var active=false,selected=null,hovered=null,overlay,diagnostics=[]',
-      'var active=false,selected=null,selectedMeta=null,hovered=null,referenceInfo="",overlay,diagnostics=[]')
+      'if(!Element.prototype.attachShadow){var unsupported=document.createElement("aside");unsupported.textContent="Math inspector unavailable: unsupported browser (Shadow DOM is required).";unsupported.style="position:fixed;z-index:100000;right:0;top:0;background:#fff0f0;border:2px solid #c00;padding:1em";document.body.appendChild(unsupported);return}var active=false,selected=null,selectedMeta=null,hovered=null,referenceInfo="",overlay,diagnostics=[]')
     .replace('function render(){if(!selected){',
       'function render(){var meta=selectedMeta||selected;if(!selected){')
     .replaceAll('selected.getAttribute(', 'meta.getAttribute(')
