@@ -52,9 +52,7 @@ function pdfHtml(html: string, config: Record<string, any>, baseDirectory: strin
 html, body { margin: 0 !important; max-width: none !important; }
 body { font-family: serif; }
 .mathmd-pagebreak { break-before: page; page-break-before: always; height: 0; }
-.mathmd-pagestyle[data-name="empty"] { page: empty; }
-.mathmd-pagestyle[data-name="plain"] { page: plain; }
-.mathmd-pagestyle[data-name="headings"] { page: headings; }
+.mathmd-pagestyle[data-name="empty"] { break-after: avoid; }
  .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
 .code-copy { display: none !important; }
