@@ -1,11 +1,11 @@
 # 最終フェーズ実装・検証レポート
 
-検証日: 2026-07-20 UTC  
+検証日: 2026-07-27 UTC
 対象: `examples/final-phase-comprehensive.md`
 
 ## 結論
 
-最終フェーズの実装を追加し、既存フェーズを含む累積サンプルを作成した。`npm test` は37/37件PASS。最終サンプルの意図した診断は、未定義脚注、未知コード言語、未登録引用のwarning 3件で、errorはない。
+最終フェーズの実装を追加し、既存フェーズを含む累積サンプルを作成した。現行の `npm run check` は44/44件PASS。最終サンプルの意図した診断は、未定義脚注、未知コード言語、未登録引用のwarning 3件で、errorはない。
 
 実装対象は次のとおり。
 
@@ -23,7 +23,7 @@
 | 正常系 | 結合表、CSS装飾、scoped style、CSS import、Callout title、Shiki、alias、Copy用HTML | PASS |
 | 準正常系 | 未知コード言語、未知参照、未定義脚注、未登録引用 | 規定warningでPASS |
 | 異常系 | CSS構文不正、`../` CSS、unsafe属性、重複ID、未対応記法 | 規定errorでPASS |
-| 既存回帰 | フェーズ1〜4の既存32テスト | PASS |
+| 既存回帰 | フェーズ1〜4およびPreviewの44テスト | PASS |
 | Preview | HTTP、診断JSON、再ビルド通知、CopyボタンHTML、PDF非表示CSS | PASS |
 | PDF | A4、ページ番号、数式、結合表、コード、Callout、参考文献 | PASS |
 

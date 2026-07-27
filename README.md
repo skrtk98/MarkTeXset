@@ -49,6 +49,8 @@ marktexset preview document.md
 
 フェーズ3までの累積機能（フェーズ1、1.5、2、3）を網羅したサンプルは [examples/phase3-comprehensive.md](examples/phase3-comprehensive.md) である。フェーズ4までの累積機能を網羅したサンプルは [examples/phase4-comprehensive.md](examples/phase4-comprehensive.md) で、期待診断は [examples/phase4-comprehensive.expected.json](examples/phase4-comprehensive.expected.json) に置く。全テスト・Preview・PDFの検証結果は [docs/phase4-test-report.md](docs/phase4-test-report.md) に記録している。各 `phaseN-comprehensive.md` は、そのフェーズ固有の機能だけでなく、それ以前の全フェーズの要素も含める。
 
+フェーズ3.5までの累積機能と数式インスペクタの検査対象は [examples/phase3.5-comprehensive.md](examples/phase3.5-comprehensive.md) で、期待診断は [examples/phase3.5-comprehensive.expected.json](examples/phase3.5-comprehensive.expected.json)、検証結果は [docs/phase3.5-test-report.md](docs/phase3.5-test-report.md) に置く。Previewの数式インスペクタはPreview専用APIとShadow DOM UIを使い、build HTML/PDFにはメタデータを出力しない。
+
 最終フェーズまでの累積機能を網羅したサンプルは [examples/final-phase-comprehensive.md](examples/final-phase-comprehensive.md)、期待診断は [examples/final-phase-comprehensive.expected.json](examples/final-phase-comprehensive.expected.json)、検証結果は [docs/final-phase-test-report.md](docs/final-phase-test-report.md) に置く。
 
 TeXとの比較が必要な場合は [baseline/](baseline/) のDocker補助環境を使う。これはMarkTeXsetのビルド経路ではない。
