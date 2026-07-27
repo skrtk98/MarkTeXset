@@ -23,4 +23,4 @@ npm start -- preview examples/phase3.5-comprehensive.md --port 35035
 
 期待診断は `examples/phase3.5-comprehensive.expected.json` に固定する。未知脚注は意図的な warning であり、error は発生させない。
 
-実測結果は A4・4ページ、診断は `UNRESOLVED_FOOTNOTE` warning 1件、`npm run check` は45/45件PASSである。PDF生成時に `LAYOUT_OVERFLOW`、`LAYOUT_OVERLAP`、`EMPTY_PAGE` は発生しなかった。
+実測結果は A4・4ページ、診断は `UNRESOLVED_FOOTNOTE` warning 1件、`npm run check` は48/48件PASSである。PDF生成時に `LAYOUT_OVERFLOW`、`LAYOUT_OVERLAP`、`EMPTY_PAGE` は発生しなかった。
