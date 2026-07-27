@@ -202,6 +202,16 @@ test("supports root YAML, imports, last-wins values, and equation labels", () =>
   assert.match(result.html, /equation-number/);
 });
 
+test("rejects unknown counter formats and imported command replacement", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-counter-import-"));
+  const imported = path.join(directory, "commands.yaml");
+  fs.writeFileSync(imported, "command:\n  macros:\n    foo: {args: 0, body: x}\n");
+  const source = "---\nmathmd:\n  import: [commands.yaml]\n  command:\n    macros:\n      foo: {args: 0, body: y}\n  layout:\n    page:\n      number:\n        format: '{page.binary}'\n    callouts:\n      theorem:\n        title: 'Theorem {unknown.arabic}'\n---\n";
+  const result = compile(source, path.join(directory, "document.md"));
+  assert.ok(result.diagnostics.items.some((item) => item.code === "INVALID_COUNTER_TEMPLATE"));
+  assert.ok(result.diagnostics.items.some((item) => item.code === "COMMAND_NAME_COLLISION"));
+});
+
 test("applies heading and callout attributes and diagnoses unresolved references", () => {
   const result = compile("# Intro {#intro .lead}\n\n> [!remark] Note {#note .warning}\n> Body\n\n[](#missing)\n");
   assert.equal(result.diagnostics.items.filter((item) => item.code === "UNRESOLVED_REFERENCE").length, 1);
@@ -427,6 +437,7 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     await toggle.click();
     const formula = page.locator("[data-mathmd-math-kind=\"inline\"]").first();
     assert.equal(await formula.getAttribute("tabindex"), "0");
+    await formula.evaluate((element) => element.setAttribute("data-mathmd-source-map", "not-json"));
     await formula.focus();
     await page.keyboard.press("Enter");
     await assert.doesNotReject(async () => inspector.getByText("Original TeX").waitFor());
@@ -442,6 +453,7 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     assert.equal(await inspector.getByText(":hover").count(), 3);
     assert.equal(await inspector.getByText("Copy JSON").count(), 1);
     assert.ok(await inspector.locator("#tex .value span").count() > 0);
+    assert.equal(await inspector.getByText("Source map unavailable; formula-wide fallback is active.").count(), 1);
     assert.equal(await inspector.locator(".math-overlay").count(), 0);
     const overlayVisible = await page.evaluate(() => {
       const host = document.querySelector("#marktexset-math-inspector") as HTMLElement | null;

@@ -235,27 +235,33 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   if (position !== undefined && position !== "bottom-center") {
     diagnostics.error("UNSUPPORTED_PAGE_POSITION", "Only bottom-center is supported in phase 1.", locationFor(source, file, 0));
   }
+  for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"]] as Array<[string, unknown, string]>) {
+    if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set([counter]));
+  }
+  for (const [name, format] of Object.entries(layout.heading?.formats ?? {})) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
   for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
     if (!isRecord(definition)) continue;
     if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style)) && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(String(definition.style))) diagnostics.error("INVALID_CALLOUT_STYLE", "Callout style must be a built-in style or a CSS class name.", locationFor(source, file, 0));
     if (definition.class !== undefined && (typeof definition.class !== "string" || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(definition.class))) diagnostics.error("INVALID_CALLOUT_CLASS", "Callout class must be a CSS class name.", locationFor(source, file, 0));
-    if (typeof definition.title === "string") validateTitle(definition.title, file, source, diagnostics);
+    if (typeof definition.title === "string") validateTitle(definition.title, name, layout.counter?.maxDepth ?? layout.counter?.["max-depth"] ?? 3, file, source, diagnostics);
     if (name.length === 0) diagnostics.error("INVALID_CALLOUT_NAME", "Callout names must not be empty.", locationFor(source, file, 0));
   }
 }
 
-function validateTitle(title: string, file: string, source: string, diagnostics: Diagnostics): void {
-  const unescaped = title.replace(/\{\{/g, "").replace(/\}\}/g, "");
+function validateCounterTemplate(template: string, label: string, file: string, source: string, diagnostics: Diagnostics, allowed: Set<string>, maxDepth = 3): void {
   const pattern = /\{([^}]+)\}/g;
-  for (const match of unescaped.matchAll(pattern)) {
+  for (const match of template.replace(/\{\{/g, "").replace(/\}\}/g, "").matchAll(pattern)) {
     const parts = match[1].split(">").map((part) => part.trim());
-    if (parts.length > 3) diagnostics.error("COUNTER_DEPTH_EXCEEDED", "Counter scope exceeds layout.counter.max-depth.", locationFor(source, file, 0));
+    if (parts.length > maxDepth) diagnostics.error("COUNTER_DEPTH_EXCEEDED", "Counter scope exceeds layout.counter.max-depth.", locationFor(source, file, 0));
     const leaf = parts.at(-1) ?? "";
     const pair = leaf.split(".");
-    if (pair.length !== 2 || !NUMBER_FORMATS.has(pair[1])) {
-      diagnostics.error("INVALID_COUNTER_TEMPLATE", "Invalid counter placeholder '" + match[1] + "'.", locationFor(source, file, 0));
-    }
+    if (pair.length !== 2 || !NUMBER_FORMATS.has(pair[1]) || !allowed.has(pair[0])) diagnostics.error("INVALID_COUNTER_TEMPLATE", "Invalid counter placeholder '" + match[1] + "' in " + label + ".", locationFor(source, file, 0), { suggestions: [...allowed].filter((candidate) => editDistance(candidate, pair[0] ?? "") <= 2).slice(0, 3) });
   }
+}
+
+function validateTitle(title: string, environment: string, maxDepth: number, file: string, source: string, diagnostics: Diagnostics): void {
+  const unescaped = title.replace(/\{\{/g, "").replace(/\}\}/g, "");
+  validateCounterTemplate(unescaped, "layout.callouts." + environment + ".title", file, source, diagnostics, new Set([environment, "h1", "h2", "h3", "h4", "h5", "h6"]), maxDepth);
 }
 
 function validateCommands(command: Record<string, any> | undefined, file: string, source: string, diagnostics: Diagnostics): void {
@@ -358,6 +364,8 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
   }
   const local = { ...root };
   delete local.import;
+  for (const name of Object.keys(local.command?.macros ?? {})) if (importedMacroNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Local macro '" + name + "' replaces an imported command.", locationFor(source, file, 0));
+  for (const name of Object.keys(local.command?.operators ?? {})) if (importedOperatorNames.has(name)) diagnostics.error("COMMAND_NAME_COLLISION", "Local operator '" + name + "' replaces an imported command.", locationFor(source, file, 0));
   settings = merge(settings, local);
   const config = merge(DEFAULT_CONFIG, settings);
   normalizeConfig(config);
