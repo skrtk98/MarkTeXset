@@ -46,7 +46,7 @@ test("validates math inspector configuration and supports disabling it", () => {
   assert.equal(disabled.diagnostics.hasErrors, false);
   assert.doesNotMatch(disabled.html, /data-mathmd-math-id/);
   loadConfig("---\nmathmd:\n  preview:\n    math-inspector:\n      panel: bottom\n      unknown: true\n---\ntext", "document.md", diagnostics);
-  assert.ok(diagnostics.items.some((item) => item.code === "UNKNOWN_CONFIG_KEY"));
+  assert.ok(diagnostics.items.some((item) => item.code === "UNKNOWN_CONFIG_KEY" && item.severity === "warning"));
   assert.ok(diagnostics.items.some((item) => item.code === "UNSUPPORTED_INSPECTOR_PANEL"));
 });
 

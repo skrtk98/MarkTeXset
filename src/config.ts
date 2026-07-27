@@ -111,10 +111,15 @@ function closest(value: string, candidates: string[]): string[] {
     .slice(0, 3).map((item) => item.candidate);
 }
 
-function unknownNested(value: unknown, allowed: string[], label: string, file: string, source: string, diagnostics: Diagnostics): void {
+function unknownNested(value: unknown, allowed: string[], label: string, file: string, source: string, diagnostics: Diagnostics, severity: "error" | "warning" = "error"): void {
   if (!isRecord(value)) return;
   const keys = new Set(allowed);
-  for (const key of Object.keys(value)) if (!keys.has(key)) diagnostics.error("UNKNOWN_CONFIG_KEY", "Unknown configuration key '" + label + "." + key + "'.", locationFor(source, file, 0), { suggestions: closest(key, allowed) });
+  for (const key of Object.keys(value)) {
+    if (keys.has(key)) continue;
+    const message = "Unknown configuration key '" + label + "." + key + "'.";
+    if (severity === "warning") diagnostics.warning("UNKNOWN_CONFIG_KEY", message, locationFor(source, file, 0), { suggestions: closest(key, allowed) });
+    else diagnostics.error("UNKNOWN_CONFIG_KEY", message, locationFor(source, file, 0), { suggestions: closest(key, allowed) });
+  }
 }
 
 function validateNestedKeys(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics): void {
@@ -138,7 +143,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.style, ["import"], "style", file, source, diagnostics);
   unknownNested(value.code, ["theme"], "code", file, source, diagnostics);
   unknownNested(value.preview, ["math-inspector"], "preview", file, source, diagnostics);
-  unknownNested(value.preview?.["math-inspector"], ["enabled", "open", "panel", "source", "tex", "dom", "styles", "computed", "diagnostics", "pseudo-states"], "preview.math-inspector", file, source, diagnostics);
+  unknownNested(value.preview?.["math-inspector"], ["enabled", "open", "panel", "source", "tex", "dom", "styles", "computed", "diagnostics", "pseudo-states"], "preview.math-inspector", file, source, diagnostics, "warning");
   if (isRecord(value.command?.macros)) for (const [name, definition] of Object.entries(value.command.macros)) unknownNested(definition, ["args", "body", "redef"], "command.macros." + name, file, source, diagnostics);
   if (isRecord(value.command?.operators)) for (const [name, definition] of Object.entries(value.command.operators)) unknownNested(definition, ["text", "font", "limits", "redef"], "command.operators." + name, file, source, diagnostics);
 }
