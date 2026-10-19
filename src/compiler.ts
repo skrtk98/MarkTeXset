@@ -9,7 +9,7 @@ import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { MONO_STACK, SERIF_STACK } from "./fonts.js";
 import { fetchRemoteResources, resetResourceCache, resolveRemoteResource } from "./resources.js";
-import { renderMath, renderMultilineMath } from "./math.js";
+import { isMathJaxCommand, renderMath, renderMultilineMath } from "./math.js";
 import { renderTikzCd } from "./tikz.js";
 import { parseCodeInfo, renderCodeFence } from "./code.js";
 import { applyScopedMarkers, extractStyleBlocks, loadImportedStyles, renderStyleCss, type ExtractedStyles } from "./styles.js";
@@ -156,8 +156,9 @@ function commandDetails(tex: string, config: Config): Array<{ name: string; kind
     const operator = operators[name];
     const definition = macro ?? operator;
     const kind = macro ? "macro" : operator ? "operator" : "command";
-    const status = definition?.redef ? "redefined" : macro || operator ? "user" : builtins.has(name) ? "builtin" : "unknown";
-    return { name: "\\" + name, kind, status, source: macro || operator ? "YAML command." + (macro ? "macros." : "operators.") + name : builtins.has(name) ? "built-in" : "unresolved", definition };
+    const builtin = builtins.has(name) || isMathJaxCommand(name);
+    const status = definition?.redef ? "redefined" : macro || operator ? "user" : builtin ? "builtin" : "unknown";
+    return { name: "\\" + name, kind, status, source: macro || operator ? "YAML command." + (macro ? "macros." : "operators.") + name : builtin ? "built-in" : "unresolved", definition };
   });
 }
 
@@ -166,6 +167,9 @@ function diagnoseMathCommands(source: string, config: Config, diagnostics: Diagn
   for (const match of source.matchAll(/\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$/g)) {
     const tex = match[1] ?? match[2] ?? "";
     const offset = match.index ?? 0;
+    for (const href of tex.matchAll(/\\href\s*\{([^}]*)\}/g)) if (!/^https?:/i.test(href[1].trim())) {
+      diagnostics.error("UNSAFE_MATH_URL", "\\href in math must use an http or https URL, not '" + href[1] + "'.", locationFor(source, file, offset, offset + match[0].length));
+    }
     for (const command of commandDetails(tex, config)) if (command.status === "unknown" && !seen.has(command.name + "@" + offset)) {
       seen.add(command.name + "@" + offset);
       diagnostics.warning("UNKNOWN_TEX_COMMAND", "Unknown TeX command '" + command.name + "'; rendering may be approximate.", locationFor(source, file, offset, offset + match[0].length));

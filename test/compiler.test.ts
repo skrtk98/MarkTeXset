@@ -672,6 +672,16 @@ test("preview escapes diagnostics, confines assets, validates WebSocket origins,
   }
 });
 
+test("recognizes every TeX command MathJax defines and rejects unsafe math links", () => {
+  const known = compile("$\\lambda \\to \\dim \\ker T \\langle u, v \\rangle \\ge \\dots \\Sigma^{\\top}$\n");
+  assert.deepEqual(known.diagnostics.items.map((item) => item.code), []);
+  assert.ok(compile("$\\foobar$\n").diagnostics.items.some((item) => item.code === "UNKNOWN_TEX_COMMAND"));
+  const unsafe = compile("$\\href{javascript:alert(1)}{x} \\style{background:url(https://evil.example/x)}{y} \\cssId{evil}{z}$\n");
+  assert.ok(unsafe.diagnostics.items.some((item) => item.code === "UNSAFE_MATH_URL" && item.severity === "error"));
+  assert.doesNotMatch(unsafe.html, /javascript:|evil\.example|id="evil"/);
+  assert.match(compile("$\\href{https://example.org}{x}$\n").html, /href="https:\/\/example\.org"/);
+});
+
 test("treats text fences as plain text without a diagnostic", () => {
   const result = compile("```text\nplain\n```\n\n```unknownlang\nx\n```\n");
   assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["UNKNOWN_CODE_LANGUAGE"]);

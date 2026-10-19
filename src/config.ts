@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
 import { Diagnostics, locationFor } from "./diagnostics.js";
+import { isMathJaxCommand } from "./math.js";
 
 export type Config = Record<string, any>;
 
@@ -283,7 +284,7 @@ function validateCommands(command: Record<string, any> | undefined, file: string
     if (!Number.isInteger(definition.args) || definition.args < 0 || definition.args > 4) {
       diagnostics.error("INVALID_MACRO_ARGS", "Macro '" + name + "' args must be an integer from 0 to 4.", locationFor(source, file, 0));
     }
-    if (definition.redef === true && !BUILTIN_COMMANDS.has(name)) {
+    if (definition.redef === true && !BUILTIN_COMMANDS.has(name) && !isMathJaxCommand(name)) {
       diagnostics.error("INVALID_REDEF", "redef is only valid for an existing built-in command '" + name + "'.", locationFor(source, file, 0));
     }
   }
@@ -295,7 +296,7 @@ function validateCommands(command: Record<string, any> | undefined, file: string
     if (definition.font !== undefined && !OPERATOR_FONTS.has(String(definition.font))) {
       diagnostics.error("INVALID_OPERATOR_FONT", "Unsupported operator font '" + definition.font + "'.", locationFor(source, file, 0));
     }
-    if (definition.redef === true && !BUILTIN_COMMANDS.has(name)) {
+    if (definition.redef === true && !BUILTIN_COMMANDS.has(name) && !isMathJaxCommand(name)) {
       diagnostics.error("INVALID_REDEF", "redef is only valid for an existing built-in command '" + name + "'.", locationFor(source, file, 0));
     }
   }
