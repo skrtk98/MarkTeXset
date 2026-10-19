@@ -6,6 +6,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     pandoc \
     texlive-luatex \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
     texlive-lang-japanese \
     fonts-lmodern \
     fonts-noto-cjk \

@@ -20,4 +20,6 @@ fi
 tex=${output%.pdf}.tex
 pandoc "$input" --from markdown --to latex --standalone --output "$tex" -V documentclass="$class"
 lualatex -interaction=nonstopmode -halt-on-error -output-directory "$(dirname "$output")" "$tex" >/dev/null
-mv "${tex%.tex}.pdf" "$output"
+if [[ "${tex%.tex}.pdf" != "$output" ]]; then
+  mv "${tex%.tex}.pdf" "$output"
+fi
