@@ -19,7 +19,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 
 ## 必要環境
 
-- Node.js（Node.js 24 で開発・検証している）
+- Node.js 22 以降（Node.js 22 と 24 で検証している）
 - Playwright 用の Chromium。PDF 出力と Preview のレイアウト検査に使う。
 
   ```bash
@@ -45,6 +45,24 @@ npm start -- build article.md
 ```
 
 `init` は最小限の Frontmatter を持つ `article.md` を作成し、`build` は同じディレクトリに `article.html` を出力する。
+
+リポジトリの外で `marktexset` コマンドを使うには、パッケージにまとめてインストールする。`npm pack` はビルドしてから `marktexset-<version>.tgz` を作る。
+
+```bash
+npm pack
+npm install --global ./marktexset-0.1.0.tgz
+marktexset build article.md --format pdf
+```
+
+コンパイラはライブラリとしても使える。
+
+```js
+import { compileFile, renderPdf } from "marktexset";
+
+const result = compileFile("article.md");
+if (!result.diagnostics.hasErrors) await renderPdf(result, "article.pdf", "article.md");
+console.log(result.diagnostics.items);
+```
 
 小さな完全な文書の例を示す。
 
@@ -170,7 +188,7 @@ npm run quality -- --baseline   # quality-report/report.md に出力する
 
 ```bash
 npm install
-npm run build   # TypeScript を dist/ にコンパイルする
+npm run build   # dist/ を消してから TypeScript をコンパイルする
 npm test        # テストを実行する
 npm run check   # build の後に test を実行する
 ```

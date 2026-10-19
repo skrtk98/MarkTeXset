@@ -19,7 +19,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 
 ## Requirements
 
-- Node.js (developed and tested with Node.js 24)
+- Node.js 22 or later (tested with Node.js 22 and 24)
 - Chromium for Playwright, which PDF output and Preview layout checks need:
 
   ```bash
@@ -45,6 +45,24 @@ npm start -- build article.md
 ```
 
 `init` creates `article.md` with a minimal Frontmatter. `build` writes `article.html` next to it.
+
+To use the `marktexset` command outside the repository, install a packed copy. `npm pack` builds the package and writes `marktexset-<version>.tgz`:
+
+```bash
+npm pack
+npm install --global ./marktexset-0.1.0.tgz
+marktexset build article.md --format pdf
+```
+
+The package also exposes the compiler as a library:
+
+```js
+import { compileFile, renderPdf } from "marktexset";
+
+const result = compileFile("article.md");
+if (!result.diagnostics.hasErrors) await renderPdf(result, "article.pdf", "article.md");
+console.log(result.diagnostics.items);
+```
 
 A small complete document looks like this:
 
@@ -170,7 +188,7 @@ Each `phaseN-comprehensive.md` sample covers the features of its own phase and e
 
 ```bash
 npm install
-npm run build   # compile TypeScript into dist/
+npm run build   # compile TypeScript into a clean dist/
 npm test        # run the test suite
 npm run check   # build, then test
 ```
