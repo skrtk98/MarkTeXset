@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 
-export interface TextLine { xMin: number; xMax: number; yMin: number; yMax: number; text: string; }
+/** `pitches`: for each run of two or more Japanese characters, the mean advance per character relative to the run's height. */
+export interface TextLine { xMin: number; xMax: number; yMin: number; yMax: number; text: string; pitches?: number[]; }
 export interface PdfPage { width: number; height: number; lines: TextLine[]; }
 
 export interface QualityReport {
@@ -14,11 +15,14 @@ export interface QualityReport {
   maxConsecutiveHyphens: number;
   /** Japanese lines that start or end with a character JIS X 4051 forbids there. */
   kinsokuViolations: number;
+  /** How far the most widely spaced run of Japanese characters exceeds the median spacing, as a share of it. */
+  maxLetterSpacing: number;
   fonts: string[];
   fallbackFonts: string[];
   unembeddedFonts: string[];
 }
 
+const JAPANESE_RUN = /^[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]{2,}$/u;
 const LINE_START_FORBIDDEN = new Set([..."、。，．・：；？！）」』】〕〉》｝］ゝゞーァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎゕゖ々…‥"]);
 const LINE_END_FORBIDDEN = new Set([..."（「『【〔〈《｛［"]);
 // Line-end punctuation is set half-width (JIS X 4051), but its glyph box still reports a full em.
@@ -54,6 +58,7 @@ function mergeVisualLines(lines: TextLine[]): TextLine[] {
     target.xMax = Math.max(target.xMax, line.xMax);
     target.yMin = Math.min(target.yMin, line.yMin);
     target.yMax = Math.max(target.yMax, line.yMax);
+    target.pitches = [...(target.pitches ?? []), ...(line.pitches ?? [])];
   }
   return merged;
 }
@@ -64,8 +69,9 @@ export function parseBboxLayout(xml: string): PdfPage[] {
   for (const page of xml.matchAll(/<page ([^>]*)>([\s\S]*?)<\/page>/g)) {
     const lines: TextLine[] = [];
     for (const line of page[2].matchAll(/<line ([^>]*)>([\s\S]*?)<\/line>/g)) {
-      const words = [...line[2].matchAll(/<word [^>]*>([\s\S]*?)<\/word>/g)].map((word) => decode(word[1]));
-      lines.push({ xMin: number(line[1], "xMin"), xMax: number(line[1], "xMax"), yMin: number(line[1], "yMin"), yMax: number(line[1], "yMax"), text: words.join(" ") });
+      const boxes = [...line[2].matchAll(/<word ([^>]*)>([\s\S]*?)<\/word>/g)].map((word) => ({ attributes: word[1], text: decode(word[2]) }));
+      const pitches = boxes.filter((box) => JAPANESE_RUN.test(box.text) && number(box.attributes, "yMax") > number(box.attributes, "yMin")).map((box) => (number(box.attributes, "xMax") - number(box.attributes, "xMin")) / [...box.text].length / (number(box.attributes, "yMax") - number(box.attributes, "yMin")));
+      lines.push({ xMin: number(line[1], "xMin"), xMax: number(line[1], "xMax"), yMin: number(line[1], "yMin"), yMax: number(line[1], "yMax"), text: boxes.map((box) => box.text).join(" "), pitches });
     }
     pages.push({ width: number(page[1], "width"), height: number(page[1], "height"), lines: mergeVisualLines(lines) });
   }
@@ -132,6 +138,8 @@ export function analyzeLayout(pages: PdfPage[], fontList: string[] = [], options
   const japanese = all.filter((line) => /[぀-ヿ一-鿿]/.test(line.text));
   const kinsoku = japanese.filter((line) => LINE_START_FORBIDDEN.has([...line.text.trim()][0] ?? "") || LINE_END_FORBIDDEN.has([...line.text.trim()].at(-1) ?? "")).length;
   const fonts = fontList.map((font) => font.replace(/^[A-Z]{6}\+/, "").split(/\s+/)[0]);
+  const pitches = all.flatMap((line) => line.pitches ?? []);
+  const typicalPitch = percentile(pitches, 0.5);
   return {
     pages: pages.length,
     bodyLines: all.length,
@@ -140,6 +148,7 @@ export function analyzeLayout(pages: PdfPage[], fontList: string[] = [], options
     hyphenatedLineEnds: hyphenated,
     maxConsecutiveHyphens: maxConsecutive,
     kinsokuViolations: kinsoku,
+    maxLetterSpacing: pitches.length ? Math.max(...pitches) / typicalPitch - 1 : 0,
     fonts: [...new Set(fonts)].sort(),
     fallbackFonts: [...new Set(fonts.filter((font) => FALLBACK_FONTS.test(font)))].sort(),
     unembeddedFonts: [...new Set(fontList.filter((font) => / no +(?:yes|no) +(?:yes|no) +\d+ +\d+$/.test(font)).map((font) => font.split(/\s+/)[0]))].sort(),
@@ -163,6 +172,7 @@ export function formatReports(reports: Array<{ name: string; report: QualityRepo
     ["Overfull lines", (report) => String(report.overfullLines)],
     ["Hyphenated line ends (max run)", (report) => report.hyphenatedLineEnds + " (" + report.maxConsecutiveHyphens + ")"],
     ["Kinsoku violations", (report) => String(report.kinsokuViolations)],
+    ["Widest Japanese letter spacing", (report) => "+" + percent(report.maxLetterSpacing)],
     ["Fonts", (report) => report.fonts.join(", ")],
     ["Fallback / unembedded fonts", (report) => [...report.fallbackFonts, ...report.unembeddedFonts].join(", ") || "none"],
   ];

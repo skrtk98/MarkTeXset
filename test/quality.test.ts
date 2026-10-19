@@ -37,6 +37,14 @@ test("merges line fragments split by inline math into one visual line", () => {
   assert.equal(analyzeLayout(parseBboxLayout(page([...Array.from({ length: 10 }, (_, index) => line(130 + index * 12, 500, "本文の行がここまで続いている")), fragments]))).kinsokuViolations, 0);
 });
 
+test("measures how far Japanese lines are letter-spaced beyond the usual pitch", () => {
+  const japanese = (y: number, xMax: number, text: string) => `<line xMin="72" yMin="${y}" xMax="${xMax}" yMax="${y + 14}"><word xMin="72" yMin="${y}" xMax="${xMax}" yMax="${y + 14}">${text}</word></line>`;
+  const normal = Array.from({ length: 10 }, (_, index) => japanese(100 + index * 17, 72 + 20 * 10, "本文の行がここまで続く"));
+  assert.equal(analyzeLayout(parseBboxLayout(page(normal))).maxLetterSpacing, 0);
+  const spread = analyzeLayout(parseBboxLayout(page([...normal, japanese(300, 72 + 26 * 10, "字間が空いた行になった")]))).maxLetterSpacing;
+  assert.ok(Math.abs(spread - 0.3) < 1e-9, String(spread));
+});
+
 test("counts space left above footnotes as unused", () => {
   const body = (count: number) => Array.from({ length: count }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text"));
   const note = (y: number) => line(y, 400, "1. A footnote at the bottom of the page.");
@@ -64,6 +72,7 @@ for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
     const report = analyzePdf(output, { protrusion: true });
     assert.equal(report.overfullLines, 0);
     assert.equal(report.kinsokuViolations, 0);
+    assert.ok(report.maxLetterSpacing < 0.1, "no Japanese line is spread out to fill the measure: +" + (report.maxLetterSpacing * 100).toFixed(1) + "%");
     assert.ok(report.maxConsecutiveHyphens <= 2, "at most two consecutive hyphenated lines");
     assert.ok(report.bottomWhitespace.max < 0.15, "pages are filled except for the last");
     if (!missingFontFiles().length) {
