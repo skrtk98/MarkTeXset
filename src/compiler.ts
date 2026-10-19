@@ -14,7 +14,7 @@ import { renderTikzCd } from "./tikz.js";
 import { parseCodeInfo, renderCodeFence } from "./code.js";
 import { applyScopedMarkers, extractStyleBlocks, loadImportedStyles, renderStyleCss, type ExtractedStyles } from "./styles.js";
 
-const multiTablePlugin = multiTable as unknown as (md: MarkdownIt, options?: { rowspan: boolean }) => void;
+const multiTablePlugin = multiTable as unknown as (md: MarkdownIt, options?: { rowspan?: boolean; autolabel?: boolean; multibody?: boolean }) => void;
 
 export interface CompileResult {
   html: string;
@@ -446,7 +446,7 @@ function renderMarkdownBody(source: string, config: Config, context: RenderConte
   if (footnoteReferences.length) prepared.text = prepared.text.replace(/^\[\^([^\]]+)\]\s*$/gm, "").replace(/^\n+/, "");
   const footnotePrefix = [...footnoteDefinitions, ...footnoteReferences];
   if (footnotePrefix.length) prepared.text = footnotePrefix.join("\n") + "\n\n" + prepared.text;
-  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist).use(multiTablePlugin, { rowspan: true, autolabel: false } as any);
+  const md = new MarkdownIt({ html: false, linkify: true, typographer: false }).use(footnote).use(taskLists, { enabled: true, label: true, labelAfter: true }).use(deflist).use(multiTablePlugin, { rowspan: true, autolabel: false, multibody: false } as any);
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
     const info = parseCodeInfo(token.info ?? "");
