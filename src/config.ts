@@ -34,7 +34,8 @@ const DEFAULT_CONFIG: Config = {
     counter: { maxDepth: 3 },
     footnote: { format: "{footnote.arabic}", placement: "bottom" },
     figure: { numbered: true, display: "Figure {figure.arabic}.", reference: "Figure {figure.arabic}" },
-    equation: { numbered: false, display: "({equation.arabic})", reference: "式 ({equation.arabic})" },
+    table: { numbered: true, display: "Table {table.arabic}.", reference: "Table {table.arabic}" },
+    equation: { numbered: false, display: "({equation.arabic})", reference: "({equation.arabic})" },
     callouts: {},
   },
   command: { macros: {}, operators: {} },
@@ -71,6 +72,17 @@ function isRecord(value: unknown): value is Record<string, any> {
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
+
+// Japanese documents follow ltjsarticle's names for generated text; explicit settings still win.
+const JAPANESE_DEFAULTS = {
+  citation: { heading: { text: "参考文献" } },
+  layout: {
+    heading: { toc: "目次" },
+    figure: { display: "図 {figure.arabic}", reference: "図 {figure.arabic}" },
+    table: { display: "表 {table.arabic}", reference: "表 {table.arabic}" },
+    equation: { reference: "式 ({equation.arabic})" },
+  },
+};
 
 function merge(base: Record<string, any>, next: Record<string, any>): Record<string, any> {
   const result = clone(base);
@@ -129,7 +141,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.citation, ["style", "heading"], "citation", file, source, diagnostics);
   unknownNested(value.citation?.heading, ["text", "level"], "citation.heading", file, source, diagnostics);
   unknownNested(value.network, ["allow", "domains"], "network", file, source, diagnostics);
-  unknownNested(value.layout, ["class", "size", "margins", "paginate", "page", "title", "heading", "counter", "footnote", "equation", "figure", "callouts", "line-break"], "layout", file, source, diagnostics);
+  unknownNested(value.layout, ["class", "size", "margins", "paginate", "page", "title", "heading", "counter", "footnote", "equation", "figure", "table", "callouts", "line-break"], "layout", file, source, diagnostics);
   unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
   unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
   unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
@@ -139,6 +151,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
   unknownNested(value.layout?.equation, ["numbered", "display", "reference"], "layout.equation", file, source, diagnostics);
   unknownNested(value.layout?.figure, ["numbered", "display", "reference"], "layout.figure", file, source, diagnostics);
+  unknownNested(value.layout?.table, ["numbered", "display", "reference"], "layout.table", file, source, diagnostics);
   if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style", "class"], "layout.callouts." + name, file, source, diagnostics);
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
   unknownNested(value.style, ["import"], "style", file, source, diagnostics);
@@ -243,7 +256,7 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   }
   if (layout["line-break"] !== undefined && !["optimal", "browser"].includes(String(layout["line-break"]))) diagnostics.error("UNSUPPORTED_LINE_BREAK", "layout.line-break must be optimal or browser.", locationFor(source, file, 0));
   if (layout.page?.style !== undefined && !["empty", "plain", "headings"].includes(String(layout.page.style))) diagnostics.error("UNSUPPORTED_PAGE_STYLE", "Page style must be empty, plain, or headings.", locationFor(source, file, 0));
-  for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"]] as Array<[string, unknown, string]>) {
+  for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"], ["layout.table.display", layout.table?.display, "table"], ["layout.table.reference", layout.table?.reference, "table"]] as Array<[string, unknown, string]>) {
     if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set([counter]));
   }
   for (const [name, format] of Object.entries(layout.heading?.formats ?? {})) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
@@ -373,7 +386,8 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
   const local = { ...root };
   delete local.import;
   settings = merge(settings, local);
-  const config = merge(DEFAULT_CONFIG, settings);
+  const japanese = /^ja(?:-|$)/i.test(String(settings.meta?.language ?? ""));
+  const config = merge(japanese ? merge(DEFAULT_CONFIG, JAPANESE_DEFAULTS) : DEFAULT_CONFIG, settings);
   normalizeConfig(config);
   return { config, body: frontmatter.body };
 }

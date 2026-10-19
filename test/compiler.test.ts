@@ -305,7 +305,7 @@ test("renders numbered figures and resolves figure references", () => {
   assert.equal(result.diagnostics.hasErrors, false);
   assert.match(result.html, /<figure id=\"fig:sample\" class=\"figure\">/);
   assert.match(result.html, /Figure 1\. Sample image/);
-  assert.match(result.html, /href=\"#fig:sample\">Figure 1\.<\/a>/);
+  assert.match(result.html, /href=\"#fig:sample\">Figure 1<\/a>/);
 });
 
 test("supports author-year citations, URLs, and advanced title dates", () => {
@@ -716,4 +716,45 @@ test("links every table of contents entry, generating IDs for headings without o
   assert.equal(new Set(links).size, 3);
   for (const id of links) assert.match(result.html, new RegExp("<h[1-6][^>]* id=\"" + id + "\""));
   assert.ok(links.includes("two"));
+});
+
+test("captions and numbers tables with Pandoc's caption syntax and keeps adjacent tables apart", () => {
+  const result = compile("| a |\n|---|\n| 1 |\n\n| b |\n|---|\n| 2 |\n\n: Second table. {#tbl:two}\n\nTable: Before its table.\n\n| c |\n|---|\n| 3 |\n\nSee [](#tbl:two).\n");
+  assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
+  assert.equal((result.html.match(/<table\b/g) ?? []).length, 3);
+  assert.doesNotMatch(result.html, /<td>---<\/td>|<p>(?:Table)?:/);
+  assert.match(result.html, /<table id="tbl:two" class="mathmd-table"><caption class="table-caption">Table 1\. Second table\.<\/caption>/);
+  assert.match(result.html, /<caption class="table-caption">Table 2\. Before its table\.<\/caption>/);
+  assert.match(result.html, /<a href="#tbl:two">Table 1<\/a>/);
+});
+
+test("keeps environments in display math whole and reports TeX errors", () => {
+  const aligned = compile("$$\n\\begin{aligned}\na &= b \\\\\n&= c\n\\end{aligned}\n$$\n\n$$\nx &= \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} \\\\\ny &= 0\n$$\n");
+  assert.equal(aligned.diagnostics.items.length, 0, JSON.stringify(aligned.diagnostics.items));
+  assert.equal((aligned.html.match(/<div class="equation-row"/g) ?? []).length, 3);
+  assert.doesNotMatch(aligned.html, /data-mjx-error|math-error/);
+  for (const source of ["$$\n\\frac{a}{\n$$\n", "Inline $\\sqrt{x$.\n", "$$\na &= \\frac{1}{ \\\\\nb &= c\n$$\n"]) {
+    const broken = compile(source);
+    assert.ok(broken.diagnostics.items.some((item) => item.code === "MATH_RENDER" && /Missing close brace/.test(item.message)), source);
+    assert.doesNotMatch(broken.html, /data-mjx-error/);
+  }
+});
+
+test("uses language defaults and reference templates for generated text", () => {
+  const source = "<maketoc />\n\n# A\n\n| x |\n|---|\n| 1 |\n\n: T {#tbl:t}\n\n![F](assets/phase1.5.svg){#fig:f}\n\n$$\nx \\label{eq:x}\n$$\n\n[](#tbl:t) [](#fig:f) [](#eq:x) $\\eqref{eq:x} \\ref{eq:x}$\n";
+  const file = path.resolve("examples/document.md");
+  const english = compile(source, file);
+  assert.equal(english.diagnostics.items.length, 0, JSON.stringify(english.diagnostics.items));
+  assert.match(english.html, /toc-title">Contents</);
+  assert.match(english.html, /Table 1\. T<\/caption>/);
+  assert.match(english.html, /Figure 1\. F<\/figcaption>/);
+  assert.match(english.html, /<a href="#tbl:t">Table 1<\/a> <a href="#fig:f">Figure 1<\/a> <a href="#eq:x">\(1\)<\/a>/);
+  const japanese = compile("---\nmathmd:\n  meta:\n    language: ja\n---\n" + source, file);
+  assert.match(japanese.html, /toc-title">目次</);
+  assert.match(japanese.html, /表 1 T<\/caption>/);
+  assert.match(japanese.html, /図 1 F<\/figcaption>/);
+  assert.match(japanese.html, /<a href="#tbl:t">表 1<\/a> <a href="#fig:f">図 1<\/a> <a href="#eq:x">式 \(1\)<\/a>/);
+  assert.match(japanese.html, /<mtext href="#eq:x">\(1\)<\/mtext>[\s\S]*<mtext href="#eq:x">1<\/mtext>/, "TeX references print the bare number");
+  const custom = compile("---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    heading:\n      toc: Contents\n---\n<maketoc />\n\n# A\n", file);
+  assert.match(custom.html, /toc-title">Contents</, "explicit settings override language defaults");
 });

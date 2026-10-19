@@ -258,13 +258,16 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
     return token;
   };
   let equation = 0;
+  // \eqref and \ref print the bare number, as in LaTeX; the reference template is for Markdown links.
+  const equationNumbers = new Map<string, number>();
   const resolveTexReferences = (value: string): string => value.replace(/\\(eqref|ref)\{([^}]+)\}/g, (_match, kind: string, id: string) => {
     const reference = references.get(id);
     if (!reference) {
       diagnostics.warning("UNRESOLVED_REFERENCE", "Reference '#" + id + "' could not be resolved.");
       return "\\text{??}";
     }
-    const label = kind === "eqref" ? reference : reference.replace(/^\(|\)\s*$/g, "");
+    const number = equationNumbers.get(id);
+    const label = number !== undefined ? (kind === "eqref" ? "(" + number + ")" : String(number)) : kind === "eqref" ? reference : reference.replace(/^\(|\)\s*$/g, "");
     const escaped = label.replace(/[\\%#$&_{}]/g, "\\$&");
     return "\\href{#" + id.replace(/[^A-Za-z0-9:_-]/g, "") + "}{\\text{" + escaped + "}}";
   });
@@ -284,7 +287,8 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
-          references.set(label, numberValue ? "(" + numberValue + ")" : "equation");
+          if (numberValue) equationNumbers.set(label, numberValue);
+          references.set(label, numberValue ? counterLabel(String(config.layout.equation.reference ?? "({equation.arabic})"), "equation", numberValue) : "equation");
         }
         const rowSource = row.source ?? "";
         const rowId = context.mathInspector ? "row-" + rowIndex : undefined;
@@ -319,8 +323,36 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   return { text, values };
 }
 
+function counterLabel(template: string, counter: string, value: number): string {
+  return template.split("{" + counter + ".arabic}").join(String(value));
+}
+
 function figureLabel(template: string, value: number): string {
-  return template.replace(/\{figure\.arabic\}/g, String(value));
+  return counterLabel(template, "figure", value);
+}
+
+// Pandoc table captions: a paragraph starting with ':' or 'Table:' right before or after a table.
+// A trailing {#id} names the table for references. Only captioned tables are numbered, as in LaTeX.
+function captionTables(html: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
+  const caption = "<p>(?:Table)?:\\s+([\\s\\S]*?)<\\/p>";
+  const table = "(<table\\b(?:(?!<table\\b)[\\s\\S])*?<\\/table>)";
+  const pattern = new RegExp(table + "\\s*" + caption + "|" + caption + "\\s*" + table, "g");
+  let tables = 0;
+  return html.replace(pattern, (_match, after: string | undefined, afterCaption: string | undefined, beforeCaption: string | undefined, before: string | undefined) => {
+    const element = (after ?? before)!;
+    let text = (afterCaption ?? beforeCaption)!.trim();
+    const id = text.match(/\s*\{#([A-Za-z][A-Za-z0-9:_-]*)\}$/)?.[1];
+    if (id) {
+      text = text.slice(0, text.lastIndexOf("{")).trim();
+      if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
+      context.ids.add(id);
+    }
+    const number = config.layout.table?.numbered !== false ? ++tables : 0;
+    if (id) context.references.set(id, number ? counterLabel(String(config.layout.table.reference ?? "Table {table.arabic}"), "table", number) : "Table");
+    const label = number ? counterLabel(String(config.layout.table.display ?? "Table {table.arabic}."), "table", number) : "";
+    const captionHtml = "<caption class=\"table-caption\">" + [label, text].filter(Boolean).join(" ") + "</caption>";
+    return element.replace(/^<table\b([^>]*)>/, (open, attributes: string) => "<table" + (id && !/\sid="/.test(attributes) ? " id=\"" + escapeHtml(id) + "\"" : "") + attributes + ">" + captionHtml);
+  });
 }
 
 function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
@@ -349,7 +381,7 @@ function protectImages(source: string, config: Config, context: RenderContext, d
     const numbered = config.layout.figure?.numbered !== false;
     const number = numbered ? ++context.figures : 0;
     const label = number ? figureLabel(String(config.layout.figure.display ?? "Figure {figure.arabic}."), number) : "";
-    if (id) context.references.set(id, label || "Figure");
+    if (id) context.references.set(id, number ? figureLabel(String(config.layout.figure.reference ?? "Figure {figure.arabic}"), number) : "Figure");
     const caption = [label, alt].filter(Boolean).join(" ");
     const token = "MATHMDIMAGE" + index++ + "TOKEN";
     replacements.set(token, "<figure" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"figure\"><img src=\"" + escapeHtml(src) + "\" alt=\"" + escapeHtml(alt) + "\"" + (title ? " title=\"" + escapeHtml(title) + "\"" : "") + ">" + (caption ? "<figcaption class=\"figure-caption\">" + escapeHtml(caption) + "</figcaption>" : "") + "</figure>");
@@ -710,6 +742,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     if (!(loaded.config.bibliography ?? []).length) diagnostics.warning("MISSING_BIBLIOGRAPHY", "<references /> was requested but no bibliography data was configured.");
     html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
   }
+  html = captionTables(html, loaded.config, context, diagnostics);
   html = addHeadingNumbers(html, loaded.config);
   if (tocCount > 0) {
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
