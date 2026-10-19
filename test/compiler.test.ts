@@ -589,3 +589,65 @@ test("build reports diagnostics on errors in text and JSON modes", () => {
   assert.match(text.stderr, /error UNKNOWN_CONFIG_KEY/);
   assert.equal(fs.existsSync(path.join(directory, "out.html")), false);
 });
+
+test("preview escapes diagnostics, confines assets, validates WebSocket origins, and survives bad input", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-security-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.png"), "secret");
+  fs.writeFileSync(path.join(directory, "inside.png"), "inside");
+  fs.symlinkSync(path.join(outside, "secret.png"), path.join(directory, "leak.png"));
+  const input = path.join(directory, "document.md");
+  const payload = "<img src=x onerror=window.__pwned=1></script><script>window.__pwned=2</script>";
+  fs.writeFileSync(input, "---\nmathmd:\n  \"" + payload + "\": 1\n---\n\n![a](inside.png)\n\n![b](leak.png)\n");
+  const port = 34676;
+  const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  let exited = false;
+  child.on("exit", () => { exited = true; });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("preview did not start")), 30000);
+      child.stderr.on("data", (chunk) => { if (String(chunk).includes("Preview server running")) { clearTimeout(timeout); resolve(); } });
+      child.on("error", reject);
+    });
+    const base = "http://127.0.0.1:" + port;
+    const page = await browser.newPage();
+    await page.goto(base + "/", { waitUntil: "load" });
+    await page.locator("#marktexset-diagnostics").getByText(/UNKNOWN_CONFIG_KEY/).waitFor();
+    assert.equal(await page.evaluate(() => (window as any).__pwned), undefined);
+    assert.equal(await page.locator("#marktexset-diagnostics").getByText("onerror=window.__pwned=1", { exact: false }).count(), 1);
+    assert.equal((await fetch(base + "/inside.png")).status, 200);
+    assert.equal((await fetch(base + "/leak.png")).status, 404);
+    assert.equal((await fetch(base + "/__marktexset/inspector/%")).status, 400);
+    assert.equal((await fetch(base + "/%")).status, 400);
+    const opens = (origin?: string) => new Promise<boolean>((resolve) => {
+      const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws", origin ? { origin } : {});
+      socket.on("open", () => { socket.close(); resolve(true); });
+      socket.on("error", () => resolve(false));
+    });
+    assert.equal(await opens("http://evil.example"), false);
+    assert.equal(await opens("http://127.0.0.1:" + port), true);
+    const recovered = new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws");
+      const timeout = setTimeout(() => { socket.close(); reject(new Error("preview did not recover")); }, 60000);
+      let failed = false;
+      socket.on("message", (data) => {
+        const message = JSON.parse(String(data));
+        if (message.type === "diagnostics" && message.diagnostics.some((item: any) => item.code === "PREVIEW_BUILD_FAILED")) failed = true;
+        if (failed && message.type === "reload") { clearTimeout(timeout); socket.close(); resolve(); }
+      });
+      socket.on("error", reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    fs.rmSync(input);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal((await fetch(base + "/__marktexset/status")).status, 200);
+    fs.writeFileSync(input, "# Restored\n");
+    await recovered;
+    assert.equal(exited, false);
+    assert.match(await fetch(base + "/").then((response) => response.text()), /Restored/);
+  } finally {
+    await browser.close();
+    child.kill("SIGTERM");
+  }
+});

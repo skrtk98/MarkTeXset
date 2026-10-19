@@ -3,11 +3,13 @@ import http from "node:http";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { compileFile, type CompileResult } from "./compiler.js";
+import { Diagnostics } from "./diagnostics.js";
 import { inspectLayout } from "./pdf.js";
 
 interface PreviewOptions { input: string; port: number; host: string; mathInspector?: boolean; }
 
-function json(value: unknown): string { return JSON.stringify(value); }
+// Escape characters that could close an inline <script> or break JavaScript string parsing.
+function json(value: unknown): string { return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029"); }
 
 function inspectorRecord(html: string, mathId: string): Record<string, unknown> | undefined {
   const escaped = mathId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -26,13 +28,17 @@ function inspectorRecord(html: string, mathId: string): Record<string, unknown> 
   };
 }
 
+function decodePathSegment(value: string): string | undefined {
+  try { return decodeURIComponent(value); } catch { return undefined; }
+}
+
 function inspectorResponse(response: http.ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
   response.end(json(value));
 }
 
 function clientScript(): string {
-  return "(function(){var overlay,root;function show(ds){if(!ds.length){if(overlay){overlay.remove();overlay=null;root=null}return}if(!overlay){overlay=document.createElement('aside');overlay.id='marktexset-diagnostics';overlay.style='position:fixed;z-index:99999;right:0;top:0;max-width:42em;max-height:90vh;overflow:auto;background:#fff0f0;border:2px solid #c00;padding:1em;font:14px sans-serif;box-shadow:0 2px 8px #555';root=overlay.attachShadow({mode:'open'});document.body.appendChild(overlay)}root.innerHTML='<style>:host{display:block}button{float:right}div{border-top:1px solid #ccc;padding:.5em 0}</style><button id=\"marktexset-close\">×</button><h2>Diagnostics</h2>'+ds.map(function(d){return '<div style=\"color:'+(d.severity==='error'?'#a00':'#a60')+'\"><b>'+d.severity.toUpperCase()+' '+d.code+'</b><br>'+d.message+(d.location?'<br>'+d.location.file+':'+d.location.start.line+':'+d.location.start.column:'')+'</div>'}).join('');root.querySelector('#marktexset-close').onclick=function(){overlay.remove();overlay=null;root=null}}function connect(){var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/__marktexset/ws');ws.onopen=function(){fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])})};ws.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='diagnostics')show(m.diagnostics);if(m.type==='reload'){var y=scrollY;fetch('/',{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){document.open();document.write(t);document.close();scrollTo(0,y)})}};ws.onclose=function(){show([{severity:'warning',code:'PREVIEW_DISCONNECTED',message:'Preview server disconnected'}]);setTimeout(connect,500)}}fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])});connect()})();";
+  return "(function(){var overlay,root;function show(ds){if(!ds.length){if(overlay){overlay.remove();overlay=null;root=null}return}if(!overlay){overlay=document.createElement('aside');overlay.id='marktexset-diagnostics';overlay.style='position:fixed;z-index:99999;right:0;top:0;max-width:42em;max-height:90vh;overflow:auto;background:#fff0f0;border:2px solid #c00;padding:1em;font:14px sans-serif;box-shadow:0 2px 8px #555';root=overlay.attachShadow({mode:'open'});document.body.appendChild(overlay)}root.innerHTML='<style>:host{display:block}button{float:right}div{border-top:1px solid #ccc;padding:.5em 0}</style><button id=\"marktexset-close\">×</button><h2>Diagnostics</h2>';ds.forEach(function(d){var row=document.createElement('div');row.style.color=d.severity==='error'?'#a00':'#a60';var head=document.createElement('b');head.textContent=String(d.severity).toUpperCase()+' '+d.code;row.appendChild(head);row.appendChild(document.createElement('br'));row.appendChild(document.createTextNode(String(d.message)));if(d.location){row.appendChild(document.createElement('br'));row.appendChild(document.createTextNode(d.location.file+':'+d.location.start.line+':'+d.location.start.column))}root.appendChild(row)});root.querySelector('#marktexset-close').onclick=function(){overlay.remove();overlay=null;root=null}}function connect(){var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/__marktexset/ws');ws.onopen=function(){fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])})};ws.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='diagnostics')show(m.diagnostics);if(m.type==='reload'){var y=scrollY;fetch('/',{cache:'no-store'}).then(function(r){return r.text()}).then(function(t){document.open();document.write(t);document.close();scrollTo(0,y)})}};ws.onclose=function(){show([{severity:'warning',code:'PREVIEW_DISCONNECTED',message:'Preview server disconnected'}]);setTimeout(connect,500)}}fetch('/__marktexset/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){show(s.diagnostics||[])});connect()})();";
 }
 
 function mathInspectorScript(open: boolean): string {
@@ -122,6 +128,10 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   let watchers: fs.FSWatcher[] = [];
   let watchedKey = "";
   let allowedAssets = new Set<string>();
+  const assetRoot = fs.realpathSync(path.dirname(input));
+  const insideRoot = (file: string) => { const relative = path.relative(assetRoot, file); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+  let buildFailure: Diagnostics | undefined;
+  const diagnosticsNow = () => (buildFailure ?? current.diagnostics);
   const clients = new Set<WebSocket>();
   let initialLayoutReady = false;
   const broadcast = (message: unknown) => { const data = json(message); for (const client of clients) if (client.readyState === 1) client.send(data); };
@@ -131,8 +141,13 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     if (key === watchedKey) return;
     for (const watcher of watchers) watcher.close();
     watchedKey = key;
-    allowedAssets = new Set(files.filter((file) => file !== input).map((file) => { try { return fs.realpathSync(file); } catch { return file; } }));
-    watchers = files.map((file) => fs.watch(file, (eventType) => { if (eventType === "rename") watchedKey = ""; schedule(); }));
+    // Serve only assets whose real path stays inside the document directory, so symlinks cannot expose outside files.
+    allowedAssets = new Set(files.filter((file) => file !== input).flatMap((file) => { try { const real = fs.realpathSync(file); return insideRoot(real) ? [real] : []; } catch { return []; } }));
+    watchers = files.map((file) => {
+      const watcher = fs.watch(file, (eventType) => { if (eventType === "rename") watchedKey = ""; schedule(); });
+      watcher.on("error", () => { watchedKey = ""; schedule(); });
+      return watcher;
+    });
   };
   const build = async () => {
     if (building) { pending = true; return; }
@@ -140,6 +155,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     broadcast({ type: "status", state: "building", revision });
     try {
       current = inspectorEnabled ? compileFile(input, { mathInspector: true }) : compileFile(input);
+      buildFailure = undefined;
       await inspectCurrentLayout();
       revision++;
       if (!current.diagnostics.hasErrors) lastGood = current.html;
@@ -147,19 +163,32 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
       broadcast({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() });
       broadcast({ type: "status", state: current.diagnostics.hasErrors ? "error" : "ready", revision });
       if (!current.diagnostics.hasErrors) broadcast({ type: "reload", revision });
+    } catch (error) {
+      // Keep serving the last good preview; files may be briefly missing while an editor replaces them.
+      revision++;
+      buildFailure = new Diagnostics();
+      buildFailure.error("PREVIEW_BUILD_FAILED", "Preview rebuild failed: " + (error instanceof Error ? error.message : String(error)));
+      console.error("Preview rebuild failed: " + (error instanceof Error ? error.message : String(error)));
+      watchedKey = "";
+      try { refreshWatchers(); } catch { /* retried below */ }
+      broadcast({ type: "diagnostics", revision, diagnostics: buildFailure.sorted() });
+      broadcast({ type: "status", state: "error", revision });
+      if (!pending) retry = setTimeout(schedule, 500);
     } finally {
       building = false;
       if (pending) { pending = false; schedule(); }
     }
   };
-  const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(build, 100); };
+  let retry: NodeJS.Timeout | undefined;
+  const schedule = () => { if (timer) clearTimeout(timer); if (retry) clearTimeout(retry); timer = setTimeout(() => { void build(); }, 100); };
   refreshWatchers();
-  const server = http.createServer((request, response) => {
+  const handle = (request: http.IncomingMessage, response: http.ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname.startsWith("/__marktexset/inspector/") || url.pathname === "/__marktexset/source") {
       if (request.method !== "GET") { response.setHeader("Allow", "GET"); inspectorResponse(response, 405, { error: "method-not-allowed" }); return; }
       if (!inspectorEnabled) { inspectorResponse(response, 404, { error: "math-inspector-disabled" }); return; }
-      const id = url.pathname.startsWith("/__marktexset/inspector/") ? decodeURIComponent(url.pathname.slice("/__marktexset/inspector/".length)) : (url.searchParams.get("mathId") ?? "");
+      const id = url.pathname.startsWith("/__marktexset/inspector/") ? decodePathSegment(url.pathname.slice("/__marktexset/inspector/".length)) : (url.searchParams.get("mathId") ?? "");
+      if (id === undefined) { inspectorResponse(response, 400, { schemaVersion: 1, error: "bad-request" }); return; }
       const record = inspectorRecord(current.html, id);
       if (!record) { inspectorResponse(response, 404, { schemaVersion: 1, error: "math-not-found", mathId: id, diagnostics: [{ code: "INSPECTOR_STALE_SELECTION", message: "The selected formula is no longer present; select it again." }] }); return; }
       if (url.pathname === "/__marktexset/source") inspectorResponse(response, 200, { schemaVersion: 1, mathId: id, source: record.source });
@@ -168,7 +197,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     }
     if (url.pathname === "/__marktexset/status") {
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      response.end(json({ revision, diagnostics: current.diagnostics.sorted(), state: current.diagnostics.hasErrors ? "error" : "ready" }));
+      response.end(json({ revision, diagnostics: diagnosticsNow().sorted(), state: diagnosticsNow().hasErrors ? "error" : "ready" }));
       return;
     }
     if (url.pathname !== "/") {
@@ -180,16 +209,32 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
       if (!allowedAssets.has(asset)) { response.writeHead(404); response.end("Not found"); return; }
       const contentType = asset.endsWith(".svg") ? "image/svg+xml" : asset.endsWith(".png") ? "image/png" : asset.endsWith(".jpg") || asset.endsWith(".jpeg") ? "image/jpeg" : "application/octet-stream";
       response.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=3600" });
-      response.end(fs.readFileSync(asset));
+      let body: Buffer;
+      try { body = fs.readFileSync(asset); } catch { response.writeHead(404); response.end("Not found"); return; }
+      response.end(body);
       return;
     }
     response.writeHead(current.diagnostics.hasErrors && !lastGood ? 200 : 200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     response.end(inject(lastGood ?? errorPage(current), inspectorEnabled, inspectorOpen));
+  };
+  const server = http.createServer((request, response) => {
+    try { handle(request, response); }
+    catch (error) {
+      console.error("Preview request failed: " + (error instanceof Error ? error.message : String(error)));
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    }
   });
-  const socketServer = new WebSocketServer({ server, path: "/__marktexset/ws" });
+  // Browsers always send Origin on WebSocket upgrades; reject pages from other origins.
+  const sameOrigin = (request: http.IncomingMessage) => {
+    const origin = request.headers.origin;
+    if (origin === undefined) return true;
+    try { const parsed = new URL(origin); return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host === request.headers.host; } catch { return false; }
+  };
+  const socketServer = new WebSocketServer({ server, path: "/__marktexset/ws", verifyClient: (info: { req: http.IncomingMessage }) => sameOrigin(info.req) });
   socketServer.on("connection", (client) => {
     clients.add(client);
-    if (initialLayoutReady) client.send(json({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() }));
+    if (initialLayoutReady) client.send(json({ type: "diagnostics", revision, diagnostics: diagnosticsNow().sorted() }));
     client.on("close", () => clients.delete(client));
   });
   return new Promise((resolve, reject) => {
@@ -200,10 +245,10 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
       console.error("Watching " + input);
       void inspectCurrentLayout().then(() => {
         initialLayoutReady = true;
-        broadcast({ type: "diagnostics", revision, diagnostics: current.diagnostics.sorted() });
+        broadcast({ type: "diagnostics", revision, diagnostics: diagnosticsNow().sorted() });
       });
     });
-    const close = () => { if (timer) clearTimeout(timer); for (const watcher of watchers) watcher.close(); socketServer.close(); server.close(() => resolve()); };
+    const close = () => { if (timer) clearTimeout(timer); if (retry) clearTimeout(retry); for (const watcher of watchers) watcher.close(); socketServer.close(); server.close(() => resolve()); };
     process.once("SIGINT", close);
     process.once("SIGTERM", close);
   });
