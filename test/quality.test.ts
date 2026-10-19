@@ -28,6 +28,11 @@ test("line-end punctuation set half-width is not reported as overfull", () => {
   assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 0);
 });
 
+test("protruding Latin punctuation at the line end is not reported as overfull", () => {
+  const lines = [...Array.from({ length: 10 }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text")), line(300, 502, "a line that ends with a hyphen-"), line(312, 502, "a line that ends with a comma,"), line(324, 502, "a line that ends with a letter")];
+  assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 1);
+});
+
 for (const language of ["en", "ja"]) {
   test(`quality sample (${language}) meets the typesetting criteria`, async () => {
     const input = path.resolve("examples/quality/prose." + language + ".md");

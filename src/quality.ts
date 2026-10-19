@@ -23,6 +23,15 @@ const LINE_START_FORBIDDEN = new Set([..."、。，．・：；？！）」』�
 const LINE_END_FORBIDDEN = new Set([..."（「『【〔〈《｛［"]);
 // Line-end punctuation is set half-width (JIS X 4051), but its glyph box still reports a full em.
 const HALF_WIDTH_AT_LINE_END = new Set([..."、。，．）」』】〕〉》｝］"]);
+// microtype (loaded by Pandoc's LaTeX template) lets these hang into the right margin; that is protrusion, not overflow.
+const PROTRUDING_AT_LINE_END = /[-\u2010.,;:!?)\]\u2019\u201d]$/;
+
+function lineEndAllowance(line: TextLine): number {
+  const text = line.text.trim();
+  const height = line.yMax - line.yMin;
+  if (HALF_WIDTH_AT_LINE_END.has([...text].at(-1) ?? "")) return height / 2;
+  return PROTRUDING_AT_LINE_END.test(text) ? height * 0.3 : 0;
+}
 const FALLBACK_FONTS = /Liberation|DejaVu|Noto(?!.*CJK)|Arial|Helvetica|Times|Nimbus/i;
 
 const decode = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
@@ -88,7 +97,7 @@ export function analyzeLayout(pages: PdfPage[], fontList: string[] = []): Qualit
     pages: pages.length,
     bodyLines: all.length,
     bottomWhitespace: { mean: whitespace.length ? whitespace.reduce((sum, value) => sum + value, 0) / whitespace.length : 0, max: whitespace.length ? Math.max(...whitespace) : 0 },
-    overfullLines: all.filter((line) => line.xMax - (HALF_WIDTH_AT_LINE_END.has([...line.text.trim()].at(-1) ?? "") ? (line.yMax - line.yMin) / 2 : 0) > right + 1.5).length,
+    overfullLines: all.filter((line) => line.xMax - lineEndAllowance(line) > right + 1.5).length,
     hyphenatedLineEnds: hyphenated,
     maxConsecutiveHyphens: maxConsecutive,
     kinsokuViolations: kinsoku,
