@@ -82,6 +82,16 @@ export function pdfHtml(html: string, config: Record<string, any>, baseDirectory
 ${fontFaceCss((file) => ORIGIN + "/fonts/" + encodeURIComponent(file))}
 @page { size: ${size}; margin: ${margins}; font-family: ${SERIF_STACK}; @top-center { content: string(mathmd-section, first); font-size: 9pt; } @bottom-center { content: ${pageNumber}; font-size: 9pt; } }
 html, body { margin: 0 !important; max-width: none !important; }
+body { font-size: 10pt; line-height: 1.4; }
+body:lang(ja) { line-height: 1.7; }
+p { margin: 0; orphans: 2; widows: 2; }
+p + p { text-indent: 1.5em; }
+:lang(ja) p + p { text-indent: 1em; }
+:lang(ja) h1 + p, :lang(ja) h2 + p, :lang(ja) h3 + p, :lang(ja) h4 + p, :lang(ja) h5 + p, :lang(ja) h6 + p { text-indent: 1em; }
+li > p, td > p, th > p, .figure p { text-indent: 0; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.6em; }
+h1 { font-size: 1.44em; } h2 { font-size: 1.2em; } h3, h4, h5, h6 { font-size: 1em; }
+.math-block, .callout, .figure, .code-block, table, .tikzcd, ul, ol, dl { margin-top: 0.7em; margin-bottom: 0.7em; }
 .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
 .code-copy { display: none !important; }

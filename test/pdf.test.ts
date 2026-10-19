@@ -62,3 +62,19 @@ test("applies page styles from the page that follows a style marker", async () =
   assert.equal(third.at(-1), "3", "plain style shows the page number");
   assert.equal(third.filter((line) => line === "3. Gamma").length, 1, "plain style has no running head");
 });
+
+test("splits long paragraphs across pages instead of pushing them to the next page", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-paragraph-"));
+  const output = path.join(directory, "document.pdf");
+  const filler = Array.from({ length: 40 }, (_, index) => "Filler paragraph " + index + ".").join("\n\n");
+  const long = Array.from({ length: 60 }, (_, index) => "Sentence" + index + " continues the long paragraph.").join(" ");
+  const result = compile("# Start\n\n" + filler + "\n\n" + long + "\n");
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  const first = pageText(output, 1);
+  const second = pageText(output, 2);
+  assert.match(first, /Sentence0 continues/);
+  assert.match(second, /Sentence59 continues/);
+  const css = result.html.match(/<style>[\s\S]*?<\/style>/)?.[0] ?? "";
+  assert.match(css, /hyphens:auto/);
+  assert.match(css, /:lang\(ja\)\{line-break:strict/);
+});
