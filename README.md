@@ -149,7 +149,7 @@ Fetched files are cached by SHA-256 and embedded in the output as data URIs, so 
 
 ## Typesetting quality
 
-PDF output breaks English paragraphs with the Knuth–Plass algorithm, as TeX does: MarkTeXset measures each paragraph at the page's text width, chooses the line breaks that minimize the badness of the whole paragraph, hyphenating with TeX's US English patterns only when that helps, and then paginates the result. Japanese text, table cells, and footnotes keep the browser's line breaking, which follows kinsoku rules. To use the browser's line breaking everywhere, set:
+PDF output breaks English paragraphs with the Knuth–Plass algorithm, as TeX does: MarkTeXset measures each paragraph at the page's text width, chooses the line breaks that minimize the badness of the whole paragraph, hyphenating with TeX's US English patterns only when that helps, and then paginates the result. Line-final punctuation and hyphens hang slightly into the right margin, as with microtype. Inline math may break after a top-level relation or binary operator, as in TeX, so a long formula no longer forces the rest of its line to spread out. Japanese text, table cells, and footnotes keep the browser's line breaking, which follows kinsoku rules. To use the browser's line breaking everywhere, set:
 
 ```yaml
 ---
@@ -159,7 +159,7 @@ mathmd:
 ---
 ```
 
-The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. There are prose samples and samples with figures, tables, matrices, lists, code, and footnotes, in English and Japanese. `npm test` checks that their PDFs have no overfull lines and no Japanese line-breaking (kinsoku) violations, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
+The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. There are prose samples and samples with figures, tables, matrices, lists, code, and footnotes, in English and Japanese. `npm test` checks that their PDFs have no overfull lines, no Japanese line-breaking (kinsoku) violations, and no Japanese lines spread out to fill the measure, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
 
 ```bash
 docker build -t marktexset-baseline baseline
