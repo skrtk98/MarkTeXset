@@ -671,3 +671,18 @@ test("preview escapes diagnostics, confines assets, validates WebSocket origins,
     child.kill("SIGTERM");
   }
 });
+
+test("treats text fences as plain text without a diagnostic", () => {
+  const result = compile("```text\nplain\n```\n\n```unknownlang\nx\n```\n");
+  assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["UNKNOWN_CODE_LANGUAGE"]);
+});
+
+test("comprehensive examples produce exactly their expected diagnostics", () => {
+  for (const expectedFile of fs.readdirSync("examples").filter((name) => name.endsWith(".expected.json"))) {
+    const input = path.join("examples", expectedFile.replace(/\.expected\.json$/, ".md"));
+    const expected = JSON.parse(fs.readFileSync(path.join("examples", expectedFile), "utf8")).diagnostics;
+    const actual = compile(fs.readFileSync(input, "utf8"), path.resolve(input)).diagnostics.sorted();
+    assert.deepEqual(actual.map((item) => [item.severity, item.code]), expected.map((item: any) => [item.severity, item.code]), input);
+    expected.forEach((item: any, index: number) => { if (item.message) assert.ok(actual[index].message.includes(item.message), input + ": " + item.code); });
+  }
+});

@@ -60,6 +60,8 @@ function decorateTokens(html: string): string {
   });
 }
 
+const PLAIN_TEXT = new Set(["text", "txt", "plain", "plaintext"]);
+
 export interface CodeFence { language: string; filename: string; body: string; }
 
 export function parseCodeInfo(info: string): { language: string; filename: string } {
@@ -71,10 +73,11 @@ export function parseCodeInfo(info: string): { language: string; filename: strin
 export function renderCodeFence(fence: CodeFence, diagnostics: { warning: (code: string, message: string) => void }, requestedTheme = "github-light"): string {
   const requested = fence.language.trim();
   const normalized = LANGUAGES[requested.toLowerCase()] ?? requested.toLowerCase();
-  const unknown = Boolean(requested) && !SUPPORTED.has(normalized);
+  const plain = PLAIN_TEXT.has(normalized);
+  const unknown = Boolean(requested) && !plain && !SUPPORTED.has(normalized);
   if (unknown) diagnostics.warning("UNKNOWN_CODE_LANGUAGE", "Unknown code language '" + requested + "'; using plain text.");
   const theme = requestedTheme === "github-light" ? requestedTheme : (diagnostics.warning("UNKNOWN_CODE_THEME", "Unknown code theme '" + requestedTheme + "'; using github-light."), "github-light");
-  const content = unknown || !requested ? escapeHtml(fence.body) : decorateTokens(highlighter.codeToHtml(fence.body, { lang: normalized, theme }));
+  const content = unknown || plain || !requested ? escapeHtml(fence.body) : decorateTokens(highlighter.codeToHtml(fence.body, { lang: normalized, theme }));
   const header = fence.filename || requested ? "<div class=\"code-header\"><span class=\"code-filename\">" + escapeHtml(fence.filename) + "</span><span class=\"code-language\">" + escapeHtml(requested ? normalized : "") + "</span><button class=\"code-copy\" type=\"button\" data-code=\"" + escapeHtml(fence.body) + "\" aria-label=\"Copy code\">Copy</button></div>" : "";
   const codeClass = requested ? " class=\"language-" + escapeHtml(requested.toLowerCase()) + "\"" : "";
   return "<div class=\"code-block\">" + header + "<div class=\"code-content\"><pre><code" + codeClass + ">" + content.replace(/^<pre[^>]*><code>/, "").replace(/<\/code><\/pre>\s*$/, "") + "</code></pre></div></div>";
