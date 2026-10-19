@@ -10,8 +10,8 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -21,7 +21,7 @@ jobs:
           npx playwright install --with-deps chromium
           sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Cache default fonts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/marktexset/fonts
           key: fonts-${{ hashFiles('src/fonts.ts') }}
@@ -34,8 +34,8 @@ jobs:
     needs: check
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -48,7 +48,7 @@ jobs:
       - run: docker build -t marktexset-baseline baseline
       - run: npm run quality -- --baseline
       - run: cat quality-report/report.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: quality-report
           path: quality-report/
