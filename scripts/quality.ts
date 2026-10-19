@@ -28,7 +28,7 @@ for (const file of files) {
   if (baseline) {
     const texPdf = path.join(out, name + ".baseline.pdf");
     execFileSync("docker", ["run", "--rm", "-u", process.getuid!() + ":" + process.getgid!(), "-v", path.dirname(file) + ":/in:ro", "-v", out + ":/out", "marktexset-baseline", "/in/" + path.basename(file), "/out/" + path.basename(texPdf), language], { stdio: "inherit" });
-    reports.push({ name: "TeX baseline", report: analyzePdf(texPdf) });
+    reports.push({ name: "TeX baseline", report: analyzePdf(texPdf, { protrusion: true }) });
   }
   results[name] = Object.fromEntries(reports.map((item) => [item.name, item.report]));
   sections.push("## " + name + " (" + language + ")\n\n" + formatReports(reports));

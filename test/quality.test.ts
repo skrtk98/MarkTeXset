@@ -30,7 +30,8 @@ test("line-end punctuation set half-width is not reported as overfull", () => {
 
 test("protruding Latin punctuation at the line end is not reported as overfull", () => {
   const lines = [...Array.from({ length: 10 }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text")), line(300, 502, "a line that ends with a hyphen-"), line(312, 502, "a line that ends with a comma,"), line(324, 502, "a line that ends with a letter")];
-  assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 1);
+  assert.equal(analyzeLayout(parseBboxLayout(page(lines)), [], { protrusion: true }).overfullLines, 1);
+  assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 3, "MarkTeXset output gets no protrusion allowance");
 });
 
 for (const language of ["en", "ja"]) {
