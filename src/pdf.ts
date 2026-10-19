@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
+import { FONT_FILES, SERIF_STACK, fontDirectory, fontFaceCss, missingFontFiles } from "./fonts.js";
 
 const require = createRequire(import.meta.url);
 
@@ -78,7 +79,8 @@ export function pdfHtml(html: string, config: Record<string, any>, baseDirectory
   const size = pageSize(config.layout?.size);
   const pageNumber = config.layout?.page?.number?.visible === false ? "none" : pageContent(config) || "none";
   const css = `<style data-mathmd-style-origin="pdf">
-@page { size: ${size}; margin: ${margins}; @top-center { content: string(mathmd-section, first); font-size: 9pt; } @bottom-center { content: ${pageNumber}; font-size: 9pt; } }
+${fontFaceCss((file) => ORIGIN + "/fonts/" + encodeURIComponent(file))}
+@page { size: ${size}; margin: ${margins}; font-family: ${SERIF_STACK}; @top-center { content: string(mathmd-section, first); font-size: 9pt; } @bottom-center { content: ${pageNumber}; font-size: 9pt; } }
 html, body { margin: 0 !important; max-width: none !important; }
 .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
@@ -120,12 +122,16 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
     if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml() });
     if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
     if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
+    const font = FONT_FILES.find((item) => url === ORIGIN + "/fonts/" + encodeURIComponent(item.file));
+    const fontPath = font && path.join(fontDirectory(), font.file);
+    if (fontPath && fs.existsSync(fontPath)) return route.fulfill({ status: 200, contentType: "font/otf", body: fs.readFileSync(fontPath) });
     return route.abort();
   });
   await page.goto(ORIGIN + "/viewer.html");
   await page.waitForFunction(() => (window as any).__mathmd.done || (window as any).__mathmd.error, undefined, { timeout: 120_000 });
   const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
   if (error) throw new Error("Vivliostyle pagination failed: " + error);
+  await page.evaluate(() => document.fonts.ready);
   await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"));
 }
 
@@ -189,13 +195,18 @@ async function withPaginatedPage<T>(result: CompileResult, sourceFile: string, a
   }
 }
 
+function fontDiagnostics(): LayoutDiagnostic[] {
+  const missing = missingFontFiles();
+  return missing.length ? [{ code: "FONT_NOT_INSTALLED", message: "Default fonts are not installed (" + missing.map((font) => font.file).join(", ") + "); falling back to system fonts. Run 'marktexset fonts install'." }] : [];
+}
+
 export async function inspectLayout(result: CompileResult, sourceFile: string): Promise<LayoutDiagnostic[]> {
-  return withPaginatedPage(result, sourceFile, readLayoutDiagnostics);
+  return [...fontDiagnostics(), ...await withPaginatedPage(result, sourceFile, readLayoutDiagnostics)];
 }
 
 export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
   await withPaginatedPage(result, sourceFile, async (page) => {
-    for (const diagnostic of await readLayoutDiagnostics(page)) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+    for (const diagnostic of [...fontDiagnostics(), ...await readLayoutDiagnostics(page)]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
     await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
   });
   if (!fs.existsSync(output)) throw new Error("Chromium did not create the PDF output.");

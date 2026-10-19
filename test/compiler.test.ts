@@ -632,6 +632,7 @@ test("preview escapes diagnostics, confines assets, validates WebSocket origins,
     assert.equal((await fetch(base + "/inside.png")).status, 200);
     assert.equal((await fetch(base + "/leak.png")).status, 404);
     assert.equal((await fetch(base + "/..dotted.png")).status, 200);
+    assert.equal((await fetch(base + "/__marktexset/fonts/" + encodeURIComponent("../../../etc/passwd"))).status, 404);
     const rebound = await new Promise<number>((resolve, reject) => {
       http.get({ host: "127.0.0.1", port, path: "/", headers: { host: "evil.example:" + port } }, (response) => { response.resume(); resolve(response.statusCode ?? 0); }).on("error", reject);
     });

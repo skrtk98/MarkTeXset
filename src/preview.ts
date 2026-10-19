@@ -5,6 +5,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { compileFile, type CompileResult } from "./compiler.js";
 import { Diagnostics } from "./diagnostics.js";
+import { FONT_FILES, fontDirectory, fontFaceCss } from "./fonts.js";
 import { inspectLayout } from "./pdf.js";
 
 interface PreviewOptions { input: string; port: number; host: string; mathInspector?: boolean; }
@@ -82,7 +83,7 @@ function mathInspectorScript(open: boolean): string {
 }
 
 function inject(html: string, inspector: boolean, openInspector: boolean): string {
-  const printStyle = "<style>@media print{#marktexset-diagnostics{display:none!important}}</style>";
+  const printStyle = "<style>" + fontFaceCss((file) => "/__marktexset/fonts/" + encodeURIComponent(file)) + "@media print{#marktexset-diagnostics{display:none!important}}</style>";
   const copyScript = "<script>(function(){document.querySelectorAll('.code-copy').forEach(function(b){b.style.display='inline-block';b.onclick=function(){var code=b.getAttribute('data-code')||'';var done=function(){var old=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=old},1200)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(code).then(done).catch(function(){var s=document.createElement('textarea');s.value=code;document.body.appendChild(s);s.select();document.execCommand('copy');s.remove();done()})}else{var s=document.createElement('textarea');s.value=code;document.body.appendChild(s);s.select();document.execCommand('copy');s.remove();done()}}})})()</script>";
   const script = copyScript + "<script>" + clientScript() + "</script>" + (inspector ? "<script>" + mathInspectorScript(openInspector) + "</script>" : "");
   return html.replace("</head>", printStyle + "</head>").replace("</body>", script + "</body>");
@@ -210,6 +211,14 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     if (url.pathname === "/__marktexset/status") {
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(json({ revision, diagnostics: diagnosticsNow().sorted(), state: diagnosticsNow().hasErrors ? "error" : "ready" }));
+      return;
+    }
+    if (url.pathname.startsWith("/__marktexset/fonts/")) {
+      const font = FONT_FILES.find((item) => url.pathname === "/__marktexset/fonts/" + encodeURIComponent(item.file));
+      const fontPath = font && path.join(fontDirectory(), font.file);
+      if (!fontPath || !fs.existsSync(fontPath)) { response.writeHead(404); response.end("Not found"); return; }
+      response.writeHead(200, { "Content-Type": "font/otf", "Cache-Control": "public, max-age=86400" });
+      response.end(fs.readFileSync(fontPath));
       return;
     }
     if (url.pathname !== "/") {

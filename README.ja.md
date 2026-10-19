@@ -26,6 +26,15 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
   npx playwright install chromium
   ```
 
+- 既定フォント（Latin Modern と原ノ味フォント、約 12MB）。初回に一度だけユーザーキャッシュへ取得し、固定した SHA-256 で検証する。
+
+  ```bash
+  marktexset fonts install   # または npm start -- fonts install
+  marktexset fonts status
+  ```
+
+  未取得の場合、PDF と Preview はシステムフォントで組み、`FONT_NOT_INSTALLED` を警告する。HTML 出力はフォントを埋め込まず、閲覧環境に同じフォントがあればそれを使う。
+
 ## はじめに
 
 ```bash
@@ -70,12 +79,13 @@ See [](#eq:pythagoras) and [@knuth1984].
 
 ## コマンドライン
 
-呼び出しには必ずサブコマンド `build`、`preview`、`init` のいずれかを指定する。サブコマンドなしの旧形式はサポートしない。
+呼び出しには必ずサブコマンド `build`、`preview`、`init`、`fonts` のいずれかを指定する。サブコマンドなしの旧形式はサポートしない。
 
 ```bash
 marktexset build input.md [-o output.html] [--format html|pdf|json] [--force]
 marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector]
 marktexset init path/to/document [--language en|ja] [--force]
+marktexset fonts install [--force] | marktexset fonts status
 ```
 
 開発中は `npm start -- <サブコマンド> ...` で同じコマンドを実行できる。

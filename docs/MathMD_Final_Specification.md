@@ -453,7 +453,7 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 診断メッセージは英語固定。JSON の必須フィールドは `severity`、`code`、`message`、`location.file`、`location.start`、`location.end`。位置は Unicode code point の1始まり、`end` は排他的。診断順はエラー、警告の順にし、各グループ内は文書位置順とする。候補表示は編集距離2以下・最大3件。
 
-既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
+既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。欧文は Latin Modern Roman 10 / Mono 10、和文は原ノ味明朝 Regular、和文の太字は TeX の和文組版に倣って原ノ味角ゴシック Medium とし、和文の斜体は正体のままとする。数式は MathJax の TeX フォント（Computer Modern 系の SVG グリフ）で描画し、これを Latin Modern Math 相当とみなす。フォントは本体に同梱せず、`marktexset fonts install` が CTAN と原ノ味フォントの固定タグから取得し、固定した SHA-256 を検証してユーザーキャッシュ（`MARKTEXSET_FONT_DIR`、`$XDG_CACHE_HOME/marktexset/fonts`、`~/.cache/marktexset/fonts` の順）に置く。PDF と Preview は取得済みフォントを `@font-face` で読み込み、未取得の場合は `FONT_NOT_INSTALLED` を警告してシステムフォントで組む。HTML 出力はフォントを埋め込まず、同名のローカルフォントを参照する。フォント取得は文書の外部ネットワーク制限の対象外の、利用者が明示的に実行する導入手順である。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
 ## 13. 実装計画
 

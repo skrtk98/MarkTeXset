@@ -5,12 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileFile } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
+import { FONT_FILES, fontDirectory, installFonts, missingFontFiles } from "./fonts.js";
 import { startPreview } from "./preview.js";
 import { renderPdf } from "./pdf.js";
 
 function usage(message?: string): never {
   if (message) console.error("CLI error: " + message);
-  console.error("Usage: marktexset <preview|build|init> ...");
+  console.error("Usage: marktexset <preview|build|init|fonts> ...");
   process.exit(2);
 }
 
@@ -103,12 +104,28 @@ function preview(args: string[]): void {
   startPreview({ input, port, host, mathInspector }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
 }
 
+async function fonts(args: string[]): Promise<void> {
+  const action = args[0];
+  const force = args.slice(1).includes("--force");
+  for (const option of args.slice(1)) if (option !== "--force") usage("Unknown option '" + option + "'.");
+  if (action === "status") {
+    const missing = new Set(missingFontFiles().map((font) => font.file));
+    console.log("Font directory: " + fontDirectory());
+    for (const font of FONT_FILES) console.log((missing.has(font.file) ? "missing   " : "installed ") + font.file);
+    if (missing.size) process.exitCode = 1;
+  } else if (action === "install") {
+    await installFonts({ force, log: (message) => console.error(message) });
+    console.error("Fonts installed in " + fontDirectory());
+  } else usage("fonts requires 'install' or 'status'.");
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (!argv.length || argv[0] === "-h" || argv[0] === "--help") usage();
   const command = argv[0];
   if (command === "build") await build(argv.slice(1));
   else if (command === "init") init(argv.slice(1));
   else if (command === "preview") preview(argv.slice(1));
+  else if (command === "fonts") await fonts(argv.slice(1));
   else usage("Unknown command '" + command + "'.");
 }
 

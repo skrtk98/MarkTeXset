@@ -26,6 +26,15 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
   npx playwright install chromium
   ```
 
+- The default fonts (Latin Modern and Harano Aji, about 12 MB). They are downloaded once into a user cache and verified against pinned SHA-256 checksums:
+
+  ```bash
+  marktexset fonts install   # or: npm start -- fonts install
+  marktexset fonts status
+  ```
+
+  Without them, PDF and Preview fall back to system fonts and report a `FONT_NOT_INSTALLED` warning. HTML output does not embed fonts; it uses the same fonts when they are installed on the reader's system.
+
 ## Getting started
 
 ```bash
@@ -70,12 +79,13 @@ The full versions are [examples/minimal.en.md](examples/minimal.en.md) and [exam
 
 ## Command line
 
-Every invocation names a subcommand: `build`, `preview`, or `init`. The old form without a subcommand is no longer supported.
+Every invocation names a subcommand: `build`, `preview`, `init`, or `fonts`. The old form without a subcommand is no longer supported.
 
 ```bash
 marktexset build input.md [-o output.html] [--format html|pdf|json] [--force]
 marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector]
 marktexset init path/to/document [--language en|ja] [--force]
+marktexset fonts install [--force] | marktexset fonts status
 ```
 
 During development, run the same commands with `npm start -- <subcommand> ...`.
