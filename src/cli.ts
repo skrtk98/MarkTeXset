@@ -42,15 +42,23 @@ async function build(args: string[]): Promise<void> {
   if (!args.length) usage("build requires an input Markdown file.");
   const input = requireMarkdownInput(args[0]);
   const options = parseOutput(args.slice(1));
+  if (options.format === "json") {
+    // JSON mode writes only diagnostics to stdout, so no output file is checked or written.
+    const result = compileFile(input);
+    report(result, options.format);
+    // Set exitCode instead of exiting so piped stdout is fully flushed.
+    if (result.diagnostics.hasErrors) process.exitCode = 1;
+    return;
+  }
   const output = path.resolve(options.output ?? input.slice(0, -3) + (options.format === "pdf" ? ".pdf" : ".html"));
   if (!fs.existsSync(path.dirname(output))) usage("Output directory does not exist: " + path.dirname(output));
   if (fs.existsSync(output) && !options.force) usage("Output file exists; use --force to overwrite: " + output);
   const result = compileFile(input);
-  if (result.diagnostics.hasErrors) process.exit(1);
+  if (result.diagnostics.hasErrors) { report(result, options.format); process.exitCode = 1; return; }
   if (options.format === "pdf") await renderPdf(result, output, input);
   else if (options.format === "html") fs.writeFileSync(output, result.html, "utf8");
   report(result, options.format);
-  if (options.format !== "json") console.error("Wrote " + output);
+  console.error("Wrote " + output);
 }
 
 function init(args: string[]): void {

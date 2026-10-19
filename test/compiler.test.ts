@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -571,4 +571,21 @@ $$\\R{x}\\label{eq:x}$$
       assert.equal((await fetch(base + "/__marktexset/inspector/" + encodeURIComponent(id!), { method: "POST" })).status, 405);
     } finally { /* the preview process is terminated below */ }
   } finally { child.kill("SIGTERM"); }
+});
+
+test("build reports diagnostics on errors in text and JSON modes", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-build-errors-"));
+  const input = path.join(directory, "document.md");
+  fs.writeFileSync(input, "---\nmathmd:\n  unknown: 1\n---\n\nText\n");
+  fs.writeFileSync(path.join(directory, "document.html"), "existing");
+  const cli = path.resolve("src/cli.ts");
+  const run = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", cli, "build", input, ...args], { encoding: "utf8" });
+  const json = run(["--format", "json"]);
+  assert.equal(json.status, 1);
+  assert.ok(JSON.parse(json.stdout).diagnostics.some((item: any) => item.code === "UNKNOWN_CONFIG_KEY"));
+  assert.equal(fs.readFileSync(path.join(directory, "document.html"), "utf8"), "existing");
+  const text = run(["-o", path.join(directory, "out.html")]);
+  assert.equal(text.status, 1);
+  assert.match(text.stderr, /error UNKNOWN_CONFIG_KEY/);
+  assert.equal(fs.existsSync(path.join(directory, "out.html")), false);
 });
