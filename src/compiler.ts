@@ -167,6 +167,9 @@ function diagnoseMathCommands(source: string, config: Config, diagnostics: Diagn
   for (const match of source.matchAll(/\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$/g)) {
     const tex = match[1] ?? match[2] ?? "";
     const offset = match.index ?? 0;
+    for (const environment of tex.matchAll(/\\begin\s*\{(aligned|alignedat|align\*?|gather\*?)\}/g)) {
+      diagnostics.error("UNSUPPORTED_MATH_ENVIRONMENT", "The '" + environment[1] + "' environment is not supported; separate rows with \\\\ and align them with & directly in $$...$$.", locationFor(source, file, offset, offset + match[0].length));
+    }
     for (const href of tex.matchAll(/\\href\s*\{([^}]*)\}/g)) if (!/^https?:/i.test(href[1].trim())) {
       diagnostics.error("UNSAFE_MATH_URL", "\\href in math must use an http or https URL, not '" + href[1] + "'.", locationFor(source, file, offset, offset + match[0].length));
     }

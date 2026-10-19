@@ -57,7 +57,7 @@ export function renderMath(source: string, display: boolean): RenderedMath {
   return { html: "<span class=\"math-render\"><span class=\"math-svg\">" + html + "</span></span>", labels: stripped.labels, source };
 }
 
-/** Splits at `\\` or `&` outside braces and \begin...\end environments, so `aligned`, `cases`, and matrices stay whole. */
+/** Splits at `\\` or `&` outside braces and \begin...\end environments, so `cases` and matrices stay whole. */
 export function splitTopLevel(source: string, separator: "\\\\" | "&"): string[] {
   const parts: string[] = [];
   let depth = 0;

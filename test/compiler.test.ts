@@ -728,11 +728,15 @@ test("captions and numbers tables with Pandoc's caption syntax and keeps adjacen
   assert.match(result.html, /<a href="#tbl:two">Table 1<\/a>/);
 });
 
-test("keeps environments in display math whole and reports TeX errors", () => {
-  const aligned = compile("$$\n\\begin{aligned}\na &= b \\\\\n&= c\n\\end{aligned}\n$$\n\n$$\nx &= \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} \\\\\ny &= 0\n$$\n");
-  assert.equal(aligned.diagnostics.items.length, 0, JSON.stringify(aligned.diagnostics.items));
-  assert.equal((aligned.html.match(/<div class="equation-row"/g) ?? []).length, 3);
-  assert.doesNotMatch(aligned.html, /data-mjx-error|math-error/);
+test("keeps matrices whole in multiline math, rejects unadopted environments, and reports TeX errors", () => {
+  const matrices = compile("$$\nx &= \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} \\\\\ny &= \\begin{cases} 0 & t < 0 \\\\ 1 & t \\ge 0 \\end{cases}\n$$\n");
+  assert.equal(matrices.diagnostics.items.length, 0, JSON.stringify(matrices.diagnostics.items));
+  assert.equal((matrices.html.match(/<div class="equation-row"/g) ?? []).length, 2);
+  assert.doesNotMatch(matrices.html, /data-mjx-error|math-error/);
+  for (const environment of ["aligned", "align*", "gather"]) {
+    const unsupported = compile("$$\n\\begin{" + environment + "}\na &= b \\\\\n&= c\n\\end{" + environment + "}\n$$\n");
+    assert.ok(unsupported.diagnostics.items.some((item) => item.code === "UNSUPPORTED_MATH_ENVIRONMENT" && item.message.includes(environment)), environment);
+  }
   for (const source of ["$$\n\\frac{a}{\n$$\n", "Inline $\\sqrt{x$.\n", "$$\na &= \\frac{1}{ \\\\\nb &= c\n$$\n"]) {
     const broken = compile(source);
     assert.ok(broken.diagnostics.items.some((item) => item.code === "MATH_RENDER" && /Missing close brace/.test(item.message)), source);
