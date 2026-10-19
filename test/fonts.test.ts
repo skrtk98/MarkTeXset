@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
-import { FONT_FILES, fontDirectory, fontFaceCss, installFonts, missingFontFiles } from "../src/fonts.js";
+import { FONT_FILES, fontDirectory, fontFaceCss, installFonts, missingFontFiles, truetypeName } from "../src/fonts.js";
 import { convertOtfToTtf } from "../src/ttf.js";
 import opentype from "opentype.js";
 import { renderPdf } from "../src/pdf.js";
@@ -81,5 +81,21 @@ test("converts CFF outlines to TrueType while keeping layout tables and metrics"
   for (const char of "AQagx&@") {
     const [a, b] = [source.charToGlyph(char).getBoundingBox(), converted.charToGlyph(char).getBoundingBox()];
     for (const key of ["x1", "y1", "x2", "y2"]) assert.ok(Math.abs(a[key] - b[key]) <= 2, char + " " + key);
+  }
+});
+
+test("converts fonts from caches created before TrueType conversion on first PDF render", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-old-cache-"));
+  for (const font of FONT_FILES) fs.copyFileSync(path.join(fontDirectory(), font.file), path.join(directory, font.file));
+  const previous = process.env.MARKTEXSET_FONT_DIR;
+  process.env.MARKTEXSET_FONT_DIR = directory;
+  try {
+    const output = path.join(directory, "document.pdf");
+    const result = compile("Old cache text.\n");
+    await renderPdf(result, output, path.join(directory, "document.md"));
+    assert.ok(FONT_FILES.every((font) => fs.existsSync(path.join(directory, truetypeName(font)))));
+    assert.doesNotMatch(execFileSync("pdffonts", [output], { encoding: "utf8" }), /Type 3/);
+  } finally {
+    if (previous === undefined) delete process.env.MARKTEXSET_FONT_DIR; else process.env.MARKTEXSET_FONT_DIR = previous;
   }
 });

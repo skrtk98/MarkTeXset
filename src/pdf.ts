@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
-import { SERIF_STACK, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
+import { SERIF_STACK, ensureTrueTypeFonts, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
 import { breakParagraphs } from "./linebreak.js";
 
 const require = createRequire(import.meta.url);
@@ -223,18 +223,25 @@ async function withPaginatedPage<T>(result: CompileResult, sourceFile: string, a
   }
 }
 
+// Runs before pagination so fonts installed before TrueType conversion existed are converted on first use.
 function fontDiagnostics(): LayoutDiagnostic[] {
   const missing = missingFontFiles();
-  return missing.length ? [{ code: "FONT_NOT_INSTALLED", message: "Default fonts are not installed (" + missing.map((font) => font.file).join(", ") + "); falling back to system fonts. Run 'marktexset fonts install'." }] : [];
+  const unconverted = ensureTrueTypeFonts();
+  return [
+    ...missing.length ? [{ code: "FONT_NOT_INSTALLED", message: "Default fonts are not installed (" + missing.map((font) => font.file).join(", ") + "); falling back to system fonts. Run 'marktexset fonts install'." }] : [],
+    ...unconverted.length ? [{ code: "FONT_CONVERSION_FAILED", message: "Could not convert " + unconverted.join(", ") + " to TrueType; the PDF embeds them as Type 3 fonts. Run 'marktexset fonts install --force'." }] : [],
+  ];
 }
 
 export async function inspectLayout(result: CompileResult, sourceFile: string): Promise<LayoutDiagnostic[]> {
-  return [...fontDiagnostics(), ...await withPaginatedPage(result, sourceFile, readLayoutDiagnostics)];
+  const fonts = fontDiagnostics();
+  return [...fonts, ...await withPaginatedPage(result, sourceFile, readLayoutDiagnostics)];
 }
 
 export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
+  const fonts = fontDiagnostics();
   await withPaginatedPage(result, sourceFile, async (page) => {
-    for (const diagnostic of [...fontDiagnostics(), ...await readLayoutDiagnostics(page)]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+    for (const diagnostic of [...fonts, ...await readLayoutDiagnostics(page)]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
     await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
   });
   if (!fs.existsSync(output)) throw new Error("Chromium did not create the PDF output.");

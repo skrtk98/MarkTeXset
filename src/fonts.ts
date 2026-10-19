@@ -89,7 +89,7 @@ export async function installFonts(options: { force?: boolean; directory?: strin
   fs.mkdirSync(directory, { recursive: true });
   for (const font of options.files ?? FONT_FILES) {
     const target = path.join(directory, font.file);
-    if (!options.force && fs.existsSync(target) && sha256(fs.readFileSync(target)) === font.sha256) { log("Already installed " + font.file); convert(font); continue; }
+    if (!options.force && fs.existsSync(target) && sha256(fs.readFileSync(target)) === font.sha256) { log("Already installed " + font.file); convertFont(font, directory, false, log); continue; }
     log("Downloading " + font.url);
     const response = await fetcher(font.url);
     if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ": " + font.url);
@@ -99,15 +99,24 @@ export async function installFonts(options: { force?: boolean; directory?: strin
     const temporary = target + "." + process.pid + ".tmp";
     fs.writeFileSync(temporary, data);
     fs.renameSync(temporary, target);
-    convert(font);
+    convertFont(font, directory, true, log);
   }
+}
 
-  function convert(font: FontFile): void {
-    const source = fs.readFileSync(path.join(directory, font.file));
-    const target = path.join(directory, truetypeName(font));
-    if (source.toString("latin1", 0, 4) !== "OTTO" || (!options.force && fs.existsSync(target))) return;
-    log("Converting " + font.file + " to TrueType outlines");
-    fs.writeFileSync(target + "." + process.pid + ".tmp", convertOtfToTtf(source));
-    fs.renameSync(target + "." + process.pid + ".tmp", target);
+function convertFont(font: FontFile, directory: string, force: boolean, log: (message: string) => void): void {
+  const source = fs.readFileSync(path.join(directory, font.file));
+  const target = path.join(directory, truetypeName(font));
+  if (source.toString("latin1", 0, 4) !== "OTTO" || (!force && fs.existsSync(target))) return;
+  log("Converting " + font.file + " to TrueType outlines");
+  fs.writeFileSync(target + "." + process.pid + ".tmp", convertOtfToTtf(source));
+  fs.renameSync(target + "." + process.pid + ".tmp", target);
+}
+
+/** Converts installed fonts that have no TrueType version yet, such as caches from before conversion existed. Returns the fonts that failed. */
+export function ensureTrueTypeFonts(directory = fontDirectory()): string[] {
+  const failed: string[] = [];
+  for (const font of installedFontFiles(directory)) {
+    try { convertFont(font, directory, false, () => undefined); } catch { failed.push(font.file); }
   }
+  return failed;
 }
