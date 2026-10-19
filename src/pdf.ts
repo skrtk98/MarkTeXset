@@ -194,7 +194,8 @@ async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
 }
 
 async function withPaginatedPage<T>(result: CompileResult, sourceFile: string, action: (page: Page) => Promise<T>): Promise<T> {
-  const browser = await chromium.launch({ headless: true });
+  // Hinting rounds glyph advances to whole pixels at text sizes; unhinted layout keeps the font's exact metrics.
+  const browser = await chromium.launch({ headless: true, args: ["--font-render-hinting=none"] });
   try {
     const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
     await paginate(page, result, sourceFile);
