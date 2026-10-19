@@ -73,7 +73,27 @@ function sniffType(data: Uint8Array): string | undefined {
 }
 
 export interface FetchLike {
-  (url: string, init: { redirect: "manual"; signal: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; arrayBuffer(): Promise<ArrayBuffer> }>;
+  (url: string, init: { redirect: "manual"; signal: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; body?: ReadableStream<Uint8Array> | null; arrayBuffer(): Promise<ArrayBuffer> }>;
+}
+
+// Reads at most MAX_BYTES so an endpoint that omits or understates Content-Length cannot exhaust memory.
+async function readLimited(response: Awaited<ReturnType<FetchLike>>): Promise<Uint8Array> {
+  if (!response.body) {
+    const data = new Uint8Array(await response.arrayBuffer());
+    if (data.byteLength > MAX_BYTES) throw new Error("Resource exceeds " + MAX_BYTES + " bytes.");
+    return data;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BYTES) { await reader.cancel(); throw new Error("Resource exceeds " + MAX_BYTES + " bytes."); }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 }
 
 /** Fetches each URL under the network policy, re-checking every redirect, and stores it by content hash. */
@@ -98,8 +118,7 @@ export async function fetchRemoteResources(urls: Iterable<string>, policy: Netwo
       if (!response || response.status !== 200) throw new Error("HTTP " + response?.status);
       const declared = Number(response.headers.get("content-length") ?? "0");
       if (declared > MAX_BYTES) throw new Error("Resource exceeds " + MAX_BYTES + " bytes.");
-      const data = new Uint8Array(await response.arrayBuffer());
-      if (data.byteLength > MAX_BYTES) throw new Error("Resource exceeds " + MAX_BYTES + " bytes.");
+      const data = await readLimited(response);
       const contentType = sniffType(data);
       if (!contentType) throw new Error("Unrecognized resource type.");
       const sha256 = crypto.createHash("sha256").update(data).digest("hex");

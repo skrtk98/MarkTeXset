@@ -76,3 +76,13 @@ test("compileFileWithResources fetches once, then builds from the cache", () => 
     globalThis.fetch = original;
   }
 }));
+
+test("stops reading a response body once it exceeds the size limit", () => withCache(async () => {
+  let pulled = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream<Uint8Array>({ pull(controller) { pulled++; controller.enqueue(chunk); } });
+  const fetcher: FetchLike = async () => ({ ...reply(200), body });
+  const [failure] = await fetchRemoteResources(["https://img.example/huge.png"], { allow: true, domains: ["img.example"] }, { fetcher });
+  assert.match(failure.error, /exceeds/);
+  assert.ok(pulled <= 22, "reading stops shortly after 20 MB");
+}));
