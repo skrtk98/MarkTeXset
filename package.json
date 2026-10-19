@@ -3,12 +3,44 @@
   "version": "0.1.0",
   "description": "Markdown publishing for mathematical documents",
   "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skrtk98/MarkTeXset.git"
+  },
+  "homepage": "https://github.com/skrtk98/MarkTeXset#readme",
+  "bugs": {
+    "url": "https://github.com/skrtk98/MarkTeXset/issues"
+  },
+  "keywords": [
+    "markdown",
+    "math",
+    "mathjax",
+    "pdf",
+    "typesetting",
+    "japanese"
+  ],
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/src/index.d.ts",
   "bin": {
     "marktexset": "dist/src/cli.js"
   },
+  "files": [
+    "dist/src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
+    "prepack": "npm run build",
     "start": "tsx src/cli.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "npm run build && npm test",
