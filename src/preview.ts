@@ -5,7 +5,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { compileFileWithResources, type CompileResult } from "./compiler.js";
 import { Diagnostics } from "./diagnostics.js";
-import { FONT_FILES, fontDirectory, fontFaceCss } from "./fonts.js";
+import { fontFaceCss, resolveFontRequest } from "./fonts.js";
 import { inspectLayout } from "./pdf.js";
 
 interface PreviewOptions { input: string; port: number; host: string; mathInspector?: boolean; resetCache?: boolean; }
@@ -214,10 +214,10 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
       return;
     }
     if (url.pathname.startsWith("/__marktexset/fonts/")) {
-      const font = FONT_FILES.find((item) => url.pathname === "/__marktexset/fonts/" + encodeURIComponent(item.file));
-      const fontPath = font && path.join(fontDirectory(), font.file);
-      if (!fontPath || !fs.existsSync(fontPath)) { response.writeHead(404); response.end("Not found"); return; }
-      response.writeHead(200, { "Content-Type": "font/otf", "Cache-Control": "public, max-age=86400" });
+      const name = decodePathSegment(url.pathname.slice("/__marktexset/fonts/".length));
+      const fontPath = name === undefined ? undefined : resolveFontRequest(name);
+      if (!fontPath) { response.writeHead(404); response.end("Not found"); return; }
+      response.writeHead(200, { "Content-Type": fontPath.endsWith(".ttf") ? "font/ttf" : "font/otf", "Cache-Control": "public, max-age=86400" });
       response.end(fs.readFileSync(fontPath));
       return;
     }

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { TTF_CONVERTER_VERSION, convertOtfToTtf } from "./ttf.js";
 
 export interface FontFile {
   file: string;
@@ -48,12 +49,30 @@ export function missingFontFiles(directory = fontDirectory()): FontFile[] {
   return FONT_FILES.filter((font) => !fs.existsSync(path.join(directory, font.file)));
 }
 
+/** The TrueType conversion of a CFF font; Chromium embeds it in PDFs as a real font instead of Type 3. */
+export function truetypeName(font: FontFile): string {
+  return font.file.replace(/\.otf$/, "") + ".v" + TTF_CONVERTER_VERSION + ".ttf";
+}
+
+/** The file to serve for a font: its TrueType conversion when present, otherwise the original. */
+export function servedFontFile(font: FontFile, directory = fontDirectory()): string {
+  return fs.existsSync(path.join(directory, truetypeName(font))) ? truetypeName(font) : font.file;
+}
+
+/** Resolves a requested font file name to a path, accepting only manifest fonts and their conversions. */
+export function resolveFontRequest(name: string, directory = fontDirectory()): string | undefined {
+  const font = FONT_FILES.find((item) => item.file === name || truetypeName(item) === name);
+  const file = font && path.join(directory, name);
+  return file && fs.existsSync(file) ? file : undefined;
+}
+
 /** Builds @font-face rules for the installed fonts; `urlFor` maps a font file name to a URL. */
 export function fontFaceCss(urlFor: (file: string) => string, directory = fontDirectory()): string {
   const installed = new Set(installedFontFiles(directory).map((font) => font.file));
-  return [...FONT_FILES, ...ITALIC_ALIASES].filter((font) => font.family && installed.has(font.file)).map((font) =>
-    "@font-face { font-family: \"" + font.family + "\"; src: url(\"" + urlFor(font.file) + "\") format(\"opentype\"); font-weight: " + font.weight + "; font-style: " + font.style + "; font-display: block; }",
-  ).join("\n");
+  return [...FONT_FILES, ...ITALIC_ALIASES].filter((font) => font.family && installed.has(font.file)).map((font) => {
+    const file = servedFontFile(font, directory);
+    return "@font-face { font-family: \"" + font.family + "\"; src: url(\"" + urlFor(file) + "\") format(\"" + (file.endsWith(".ttf") ? "truetype" : "opentype") + "\"); font-weight: " + font.weight + "; font-style: " + font.style + "; font-display: block; }";
+  }).join("\n");
 }
 
 function sha256(data: Uint8Array): string {
@@ -70,7 +89,7 @@ export async function installFonts(options: { force?: boolean; directory?: strin
   fs.mkdirSync(directory, { recursive: true });
   for (const font of options.files ?? FONT_FILES) {
     const target = path.join(directory, font.file);
-    if (!options.force && fs.existsSync(target) && sha256(fs.readFileSync(target)) === font.sha256) { log("Already installed " + font.file); continue; }
+    if (!options.force && fs.existsSync(target) && sha256(fs.readFileSync(target)) === font.sha256) { log("Already installed " + font.file); convert(font); continue; }
     log("Downloading " + font.url);
     const response = await fetcher(font.url);
     if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ": " + font.url);
@@ -80,5 +99,15 @@ export async function installFonts(options: { force?: boolean; directory?: strin
     const temporary = target + "." + process.pid + ".tmp";
     fs.writeFileSync(temporary, data);
     fs.renameSync(temporary, target);
+    convert(font);
+  }
+
+  function convert(font: FontFile): void {
+    const source = fs.readFileSync(path.join(directory, font.file));
+    const target = path.join(directory, truetypeName(font));
+    if (source.toString("latin1", 0, 4) !== "OTTO" || (!options.force && fs.existsSync(target))) return;
+    log("Converting " + font.file + " to TrueType outlines");
+    fs.writeFileSync(target + "." + process.pid + ".tmp", convertOtfToTtf(source));
+    fs.renameSync(target + "." + process.pid + ".tmp", target);
   }
 }

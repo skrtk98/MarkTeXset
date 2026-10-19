@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
-import { FONT_FILES, SERIF_STACK, fontDirectory, fontFaceCss, missingFontFiles } from "./fonts.js";
+import { SERIF_STACK, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
 
 const require = createRequire(import.meta.url);
 
@@ -132,9 +132,8 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
     if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml() });
     if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
     if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
-    const font = FONT_FILES.find((item) => url === ORIGIN + "/fonts/" + encodeURIComponent(item.file));
-    const fontPath = font && path.join(fontDirectory(), font.file);
-    if (fontPath && fs.existsSync(fontPath)) return route.fulfill({ status: 200, contentType: "font/otf", body: fs.readFileSync(fontPath) });
+    const fontPath = url.startsWith(ORIGIN + "/fonts/") ? resolveFontRequest(decodeURIComponent(url.slice((ORIGIN + "/fonts/").length))) : undefined;
+    if (fontPath) return route.fulfill({ status: 200, contentType: fontPath.endsWith(".ttf") ? "font/ttf" : "font/otf", body: fs.readFileSync(fontPath) });
     return route.abort();
   });
   await page.goto(ORIGIN + "/viewer.html");

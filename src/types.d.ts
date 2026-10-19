@@ -12,3 +12,11 @@ declare module "markdown-it-deflist" {
   const plugin: (md: any) => void;
   export default plugin;
 }
+
+declare module "opentype.js" {
+  export interface PathCommand { type: "M" | "L" | "C" | "Q" | "Z"; x?: number; y?: number; x1?: number; y1?: number; x2?: number; y2?: number; }
+  export interface Glyph { path: { commands: PathCommand[] }; }
+  export interface Font { numGlyphs: number; glyphs: { get(index: number): Glyph }; }
+  const opentype: { parse(buffer: ArrayBuffer, options?: { lowMemory?: boolean }): Font };
+  export default opentype;
+}

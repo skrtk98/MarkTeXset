@@ -6,7 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
-import { FONT_FILES, fontFaceCss, installFonts, missingFontFiles } from "../src/fonts.js";
+import { FONT_FILES, fontDirectory, fontFaceCss, installFonts, missingFontFiles } from "../src/fonts.js";
+import { convertOtfToTtf } from "../src/ttf.js";
+import opentype from "opentype.js";
 import { renderPdf } from "../src/pdf.js";
 
 const response = (data: string, status = 200) => async () => ({ ok: status === 200, status, arrayBuffer: async () => new TextEncoder().encode(data).buffer as ArrayBuffer });
@@ -53,5 +55,31 @@ test("embeds Latin Modern and Harano Aji in PDF output", { skip: missingFontFile
   assert.match(fonts, /LMRoman10-Regular/);
   assert.match(fonts, /HaranoAjiMincho-Regular/);
   assert.doesNotMatch(fonts, /Liberation|DejaVu/);
+  assert.doesNotMatch(fonts, /Type 3/, "fonts are embedded as TrueType, not Type 3");
   assert.equal(FONT_FILES.length, 7);
+});
+
+function tables(font: Buffer): Map<string, Buffer> {
+  const result = new Map<string, Buffer>();
+  for (let i = 0; i < font.readUInt16BE(4); i++) {
+    const record = 12 + i * 16;
+    result.set(font.toString("latin1", record, record + 4), font.subarray(font.readUInt32BE(record + 8), font.readUInt32BE(record + 8) + font.readUInt32BE(record + 12)));
+  }
+  return result;
+}
+
+test("converts CFF outlines to TrueType while keeping layout tables and metrics", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, () => {
+  const otf = fs.readFileSync(path.join(fontDirectory(), "lmroman10-regular.otf"));
+  const ttf = convertOtfToTtf(otf);
+  assert.equal(ttf.readUInt32BE(0), 0x00010000);
+  const [before, after] = [tables(otf), tables(ttf)];
+  assert.ok(after.has("glyf") && after.has("loca") && !after.has("CFF "));
+  for (const tag of ["GPOS", "GSUB", "cmap", "hmtx", "hhea", "OS/2"]) assert.ok(before.get(tag)!.equals(after.get(tag)!), tag + " is copied unchanged");
+  const parse = (data: Buffer) => opentype.parse(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer) as any;
+  const [source, converted] = [parse(otf), parse(ttf)];
+  assert.equal(converted.numGlyphs, source.numGlyphs);
+  for (const char of "AQagx&@") {
+    const [a, b] = [source.charToGlyph(char).getBoundingBox(), converted.charToGlyph(char).getBoundingBox()];
+    for (const key of ["x1", "y1", "x2", "y2"]) assert.ok(Math.abs(a[key] - b[key]) <= 2, char + " " + key);
+  }
 });
