@@ -50,7 +50,7 @@ test("counts space left above footnotes as unused", () => {
 test("protruding Latin punctuation at the line end is not reported as overfull", () => {
   const lines = [...Array.from({ length: 10 }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text")), line(300, 502, "a line that ends with a hyphen-"), line(312, 502, "a line that ends with a comma,"), line(324, 502, "a line that ends with a letter")];
   assert.equal(analyzeLayout(parseBboxLayout(page(lines)), [], { protrusion: true }).overfullLines, 1);
-  assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 3, "MarkTeXset output gets no protrusion allowance");
+  assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 3, "PDFs without protrusion get no allowance");
 });
 
 for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
@@ -61,7 +61,7 @@ for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
     assert.deepEqual(result.diagnostics.items.map((item) => item.code), []);
     const output = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-quality-")), sample + ".pdf");
     await renderPdf(result, output, input);
-    const report = analyzePdf(output);
+    const report = analyzePdf(output, { protrusion: true });
     assert.equal(report.overfullLines, 0);
     assert.equal(report.kinsokuViolations, 0);
     assert.ok(report.maxConsecutiveHyphens <= 2, "at most two consecutive hyphenated lines");

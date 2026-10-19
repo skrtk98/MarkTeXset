@@ -24,7 +24,7 @@ for (const file of files) {
   if (result.diagnostics.hasErrors) throw new Error(name + " has compile errors");
   const pdf = path.join(out, name + ".marktexset.pdf");
   await renderPdf(result, pdf, file);
-  const reports = [{ name: "MarkTeXset", report: analyzePdf(pdf) }];
+  const reports = [{ name: "MarkTeXset", report: analyzePdf(pdf, { protrusion: true }) }];
   if (baseline) {
     const texPdf = path.join(out, name + ".baseline.pdf");
     execFileSync("docker", ["run", "--rm", "-u", process.getuid!() + ":" + process.getgid!(), "-v", path.dirname(file) + ":/in:ro", "-v", out + ":/out", "marktexset-baseline", "/in/" + path.basename(file), "/out/" + path.basename(texPdf), language], { stdio: "inherit" });

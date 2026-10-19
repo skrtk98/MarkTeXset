@@ -83,7 +83,7 @@ test("splits long paragraphs across pages instead of pushing them to the next pa
   assert.match(css, /:lang\(ja\)\{line-break:strict/);
 });
 
-test("breaks English paragraphs with flush right edges and keeps every word", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
+test("breaks English paragraphs with flush right edges, protruding punctuation, and every word kept", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-linebreak-"));
   const output = path.join(directory, "document.pdf");
   const paragraph = "Linear algebra studies vector spaces together with the maps that preserve their structure, and the kernel $\\ker T$ of a map consists of the vectors that $T$ sends to zero. *Characteristically*, the eigenvalues of a self-adjoint operator are real, which is the starting point of the spectral theorem and of the decomposition of a symmetric matrix.[^n] Uncharacteristically long words such as incomprehensibilities test hyphenation.";
@@ -92,11 +92,16 @@ test("breaks English paragraphs with flush right edges and keeps every word", { 
   await renderPdf(result, output, path.join(directory, "document.md"));
   const xml = execFileSync("pdftotext", ["-bbox-layout", output, "-"], { encoding: "utf8" });
   const lines = parseBboxLayout(xml)[0].lines.filter((line) => line.yMax < 700);
-  const right = Math.max(...lines.map((line) => line.xMax));
   const paragraphLines = lines.filter((line) => line.xMax - line.xMin > 300);
   assert.ok(paragraphLines.length >= 8);
-  // All lines except each paragraph's last end at the same right edge.
-  assert.ok(paragraphLines.filter((line) => right - line.xMax <= 0.5).length >= paragraphLines.length - 3, JSON.stringify(paragraphLines.map((line) => line.xMax)));
+  const hanging = (line: { text: string }) => /[.,;:‐-]$/.test(line.text.trim());
+  const edges = paragraphLines.filter((line) => !hanging(line)).map((line) => line.xMax.toFixed(1));
+  const right = Number(edges.sort((a, b) => edges.filter((edge) => edge === b).length - edges.filter((edge) => edge === a).length)[0]);
+  // All lines except each paragraph's last end at the same right edge; punctuation and hyphens hang slightly past it.
+  assert.ok(paragraphLines.filter((line) => Math.abs(right - line.xMax) <= 0.5 || hanging(line)).length >= paragraphLines.length - 3, JSON.stringify(paragraphLines.map((line) => line.xMax)));
+  const protruding = paragraphLines.filter((line) => hanging(line) && line.xMax > right + 0.5);
+  assert.ok(protruding.length >= 1, "line-final punctuation and hyphens protrude into the margin: " + JSON.stringify(paragraphLines.map((line) => [line.xMax, line.text.slice(-12)])));
+  assert.ok(protruding.every((line) => line.xMax < right + 4), "protrusion stays within part of a character");
   const words = (text: string) => text.replace(/[‐-]\n/g, "").replace(/\s+/g, " ");
   const text = words(execFileSync("pdftotext", [output, "-"], { encoding: "utf8" }));
   for (const word of ["Characteristically", "incomprehensibilities", "decomposition", "hyphenation."]) assert.ok(text.includes(word), word);

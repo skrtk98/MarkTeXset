@@ -23,8 +23,8 @@ const LINE_START_FORBIDDEN = new Set([..."、。，．・：；？！）」』�
 const LINE_END_FORBIDDEN = new Set([..."（「『【〔〈《｛［"]);
 // Line-end punctuation is set half-width (JIS X 4051), but its glyph box still reports a full em.
 const HALF_WIDTH_AT_LINE_END = new Set([..."、。，．）」』】〕〉》｝］"]);
-// With microtype (loaded by Pandoc's LaTeX template), these hang into the right margin; that is protrusion, not overflow.
-const PROTRUDING_AT_LINE_END = /[-\u2010.,;:!?)\]\u2019\u201d]$/;
+// MarkTeXset's line breaker and microtype (loaded by Pandoc's LaTeX template) hang these into the right margin; that is protrusion, not overflow.
+const PROTRUDING_AT_LINE_END = /[-\u2010\u2013\u2014.,;:!?)\]'"\u2019\u201d]$/;
 
 function lineEndAllowance(line: TextLine, protrusion: boolean): number {
   const text = line.text.trim();
@@ -33,7 +33,7 @@ function lineEndAllowance(line: TextLine, protrusion: boolean): number {
   return protrusion && PROTRUDING_AT_LINE_END.test(text) ? height * 0.3 : 0;
 }
 
-/** `protrusion` allows Latin punctuation to hang into the margin, for PDFs typeset with microtype. */
+/** `protrusion` allows Latin punctuation to hang into the margin, for PDFs typeset with margin protrusion. */
 export interface AnalyzeOptions { protrusion?: boolean; }
 const FALLBACK_FONTS = /Liberation|DejaVu|Noto(?!.*CJK)|Arial|Helvetica|Times|Nimbus/i;
 

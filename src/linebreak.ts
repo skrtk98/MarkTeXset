@@ -34,6 +34,8 @@ const BROWSER_SCRIPT = String.raw`
   var INF = 10000, LINE_PENALTY = 10, HYPHEN_PENALTY = 50, EX_HYPHEN_PENALTY = 50, DOUBLE_HYPHEN_DEMERITS = 10000, FINAL_HYPHEN_DEMERITS = 5000, ADJ_DEMERITS = 10000;
   var ATOMIC = "svg, img, code, kbd, samp, .math-render, .mathmd-footnote, .mathmd-footnote-repeat, sup, sub, input";
   var CJK = /[　-ヿ㐀-鿿＀-￯]/;
+  // Share of a line-final character's width that hangs into the right margin, after microtype's defaults.
+  var PROTRUSION = { ".": 0.7, ",": 0.5, "-": 0.7, "‐": 0.7, "–": 0.3, "—": 0.2, ":": 0.5, ";": 0.5, "!": 0.2, "?": 0.2, "'": 0.7, "’": 0.7, "\"": 0.5, "”": 0.5, ")": 0.05 };
   var canvas = document.createElement("canvas").getContext("2d");
 
   function targets() {
@@ -128,10 +130,13 @@ const BROWSER_SCRIPT = String.raw`
         breaks.forEach(function (point) {
           var width = rangeWidth(node, start, start + point.offset);
           items.push({ type: "box", width: width - previousWidth });
-          items.push({ type: "penalty", width: point.explicit ? 0 : hyphenWidth, penalty: point.explicit ? EX_HYPHEN_PENALTY : HYPHEN_PENALTY, flagged: true, hyphen: !point.explicit, node: node, offset: start + point.offset });
+          var protrude = (point.explicit ? PROTRUSION[chunk[point.offset - 1]] || 0 : PROTRUSION["-"]) * canvas.measureText(point.explicit ? chunk[point.offset - 1] : "-").width;
+          items.push({ type: "penalty", width: point.explicit ? 0 : hyphenWidth, penalty: point.explicit ? EX_HYPHEN_PENALTY : HYPHEN_PENALTY, flagged: true, hyphen: !point.explicit, node: node, offset: start + point.offset, protrude: protrude });
           previousWidth = width;
         });
-        items.push({ type: "box", width: rangeWidth(node, start, start + chunk.length) - previousWidth });
+        var lastChar = chunk[chunk.length - 1];
+        var protrude = PROTRUSION[lastChar] ? PROTRUSION[lastChar] * canvas.measureText(lastChar).width : 0;
+        items.push({ type: "box", width: rangeWidth(node, start, start + chunk.length) - previousWidth, protrude: protrude });
       }
     });
     while (items.length && items[items.length - 1].type === "glue") items.pop();
@@ -154,6 +159,12 @@ const BROWSER_SCRIPT = String.raw`
       }
       return totals;
     }
+    // How far the line ending at break i may hang into the right margin.
+    function protrusionAt(index) {
+      var item = items[index];
+      if (item.type === "penalty") return item.penalty === -INF ? 0 : item.protrude || 0;
+      return items[index - 1].protrude || 0;
+    }
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       var feasible = item.type === "penalty" ? item.penalty < INF && (allowHyphens || !item.hyphen) : item.type === "glue" && i > 0 && items[i - 1].type === "box";
@@ -162,7 +173,7 @@ const BROWSER_SCRIPT = String.raw`
         for (var a = 0; a < active.length; a++) {
           var node = active[a];
           var length = sum.width - node.width + (item.type === "penalty" ? item.width : 0);
-          var target = lineWidth(node.line);
+          var target = lineWidth(node.line) + protrusionAt(i);
           var ratio = 0;
           if (length < target) { var stretch = sum.stretch - node.stretch; ratio = stretch > 0 ? (target - length) / stretch : INF; }
           else if (length > target) { var shrink = sum.shrink - node.shrink; ratio = shrink > 0 ? (target - length) / shrink : -INF; }
@@ -195,7 +206,7 @@ const BROWSER_SCRIPT = String.raw`
     active.forEach(function (node) { if (node.position === items.length - 1 && (!best || node.demerits < best.demerits)) best = node; });
     if (!best) return null;
     var breaks = [];
-    for (var cursor = best; cursor && cursor.previous; cursor = cursor.previous) breaks.unshift({ position: cursor.position, ratio: cursor.ratio });
+    for (var cursor = best; cursor && cursor.previous; cursor = cursor.previous) breaks.unshift({ position: cursor.position, ratio: cursor.ratio, protrude: protrusionAt(cursor.position) });
     return breaks;
   }
 
@@ -233,6 +244,7 @@ const BROWSER_SCRIPT = String.raw`
         canvas.font = fontOf(p);
         css += "word-spacing:" + (ratio * canvas.measureText(" ").width / 3).toFixed(3) + "px;";
       }
+      if (breaks[index].protrude > 0 && index < fragments.length - 1) css += "margin-right:-" + breaks[index].protrude.toFixed(3) + "px;";
       if (fragments.length >= 4 && index === 0) css += "break-after:avoid;";
       if (fragments.length >= 4 && index === fragments.length - 1) css += "break-before:avoid;";
       if (fragments.length < 4) css += "break-inside:avoid;";
