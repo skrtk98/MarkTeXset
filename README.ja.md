@@ -15,7 +15,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 - **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。柱、ページ番号、ページ下部の脚注、ページスタイル、改ページを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
-- **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部リソースには HTTPS の明示的な許可リストが必要。
+- **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部の画像と CSS 資産には HTTPS の明示的な許可リストが必要で、内容ハッシュで検証・キャッシュしたうえで出力に埋め込む。
 
 ## 必要環境
 
@@ -82,8 +82,8 @@ See [](#eq:pythagoras) and [@knuth1984].
 呼び出しには必ずサブコマンド `build`、`preview`、`init`、`fonts` のいずれかを指定する。サブコマンドなしの旧形式はサポートしない。
 
 ```bash
-marktexset build input.md [-o output.html] [--format html|pdf|json] [--force]
-marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector]
+marktexset build input.md [-o output.html] [--format html|pdf|json] [--force] [--reset-cache]
+marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector] [--reset-cache]
 marktexset init path/to/document [--language en|ja] [--force]
 marktexset fonts install [--force] | marktexset fonts status
 ```
@@ -113,6 +113,21 @@ marktexset preview document.md
 - `--host` で待受アドレスを変更できる。ループバック以外のアドレスでは、そのアドレスに到達できる端末から文書を閲覧できる旨を警告する。
 
 **数式インスペクタ**は Preview で既定で有効であり、選択した数式のソース位置、元の TeX、描画 DOM、computed style を表示する。Preview 専用の機能で、HTML・PDF の build には何も追加しない。
+
+## 外部リソース
+
+外部の画像と CSS 資産は、ルートの Frontmatter で HTTPS のホスト名を完全一致で許可しない限り拒否する。
+
+```yaml
+---
+mathmd:
+  network:
+    allow: true
+    domains: ["images.example.org"]
+---
+```
+
+取得したファイルは SHA-256 でキャッシュし、データ URI として出力に埋め込むので、2 回目以降のビルドはオフラインでも動く。取得し直すには `build` または `preview` に `--reset-cache` を付ける。
 
 ## ドキュメント
 

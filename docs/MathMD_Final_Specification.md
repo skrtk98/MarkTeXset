@@ -457,6 +457,14 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 本文の組版規則は TeX の `article` / `ltjsarticle` に揃える。全出力で段落・リスト・Callout 本文を両端揃えにし、`meta.language` に応じたハイフネーション（`hyphens: auto`）と、和文の禁則（`line-break: strict`）・和欧文間のアキ（`text-autospace`）・約物の詰め（`text-spacing-trim`）を適用する。PDF では本文 10pt、行送りを欧文 1.4・和文 1.7 とし、段落間の空きを設けず字下げで段落を区切る。欧文は見出し直後の段落を字下げせず（1.5em）、和文は見出し直後も含めて全角 1 字下げる。段落はページをまたいで分割してよく、孤立行は `orphans` / `widows` で 2 行以上を保つ。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
+外部リソースとして扱うのは、Markdown の画像 `![](https://...)` と、`mathmd.style.import` で読み込む CSS 内の `url(https://...)` である。規則は次のとおり。
+
+- `network.allow` が true でなければ `NETWORK_DISABLED`、HTTPS 以外は `NETWORK_INSECURE_URL`、ホスト名が `network.domains` のいずれとも完全一致しなければ `NETWORK_DOMAIN_NOT_ALLOWED` のエラーとする。サブドメインは個別に列挙する。
+- リダイレクトは最大 5 回まで追い、各転送先にも同じ規則を適用する。応答は 20MB までとし、内容の先頭バイトから PNG、JPEG、SVG（CSS ではさらに WOFF、WOFF2、OTF、TTF）を判定する。拡張子や Content-Type は信用しない。
+- 取得した内容は SHA-256 をファイル名としてキャッシュ（`MARKTEXSET_CACHE_DIR`、`$XDG_CACHE_HOME/marktexset/resources`、`~/.cache/marktexset/resources` の順）に保存し、URL との対応を索引に記録する。キャッシュ済みの URL は再取得せず、出力にはデータ URI として埋め込む。生成物の閲覧時にネットワークは使わない。
+- `build` と `preview` の `--reset-cache` はキャッシュを削除してから取得し直す。
+- 取得に失敗した場合は `REMOTE_RESOURCE_FAILED` エラーとし、理由を message に含める。
+
 ## 13. 実装計画
 
 ### フェーズ1 — 基本 HTML コンパイラ（実装済み）

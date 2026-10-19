@@ -8,6 +8,7 @@ import multiTable from "markdown-it-multimd-table";
 import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { MONO_STACK, SERIF_STACK } from "./fonts.js";
+import { fetchRemoteResources, resetResourceCache, resolveRemoteResource } from "./resources.js";
 import { renderMath, renderMultilineMath } from "./math.js";
 import { renderTikzCd } from "./tikz.js";
 import { parseCodeInfo, renderCodeFence } from "./code.js";
@@ -19,6 +20,8 @@ export interface CompileResult {
   html: string;
   config: Config;
   diagnostics: Diagnostics;
+  /** Allowed external URLs that are not in the resource cache yet. */
+  pendingResources: string[];
 }
 
 interface RenderContext {
@@ -30,6 +33,7 @@ interface RenderContext {
   sourceText: string;
   config: Config;
   mathInspector?: MathInspectorContext;
+  pendingResources: Set<string>;
 }
 
 interface MathInspectorContext {
@@ -318,14 +322,21 @@ function figureLabel(template: string, value: number): string {
 function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
   let index = 0;
   return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)\s*(?:\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined) => {
-    if (/^(?:https?:|data:|\/\/)/i.test(src) || path.isAbsolute(src) || src.split(/[\\/]/).includes("..")) {
+    const remote = /^https?:/i.test(src);
+    if (!remote && (/^(?:data:|\/\/)/i.test(src) || path.isAbsolute(src) || src.split(/[\\/]/).includes(".."))) {
       diagnostics.error("UNSUPPORTED_IMAGE", "Images must use local paths without parent directory traversal.");
       return match;
     }
-    const resolved = path.resolve(path.dirname(context.sourceFile), src);
-    if (!fs.existsSync(resolved)) diagnostics.error("IMAGE_NOT_FOUND", "Image file '" + src + "' does not exist.");
-    const extension = path.extname(src).toLowerCase();
-    if (![".png", ".jpg", ".jpeg", ".svg"].includes(extension)) diagnostics.error("UNSUPPORTED_IMAGE_TYPE", "Unsupported image type '" + extension + "'.");
+    if (remote) {
+      const data = resolveRemoteResource(src, "image", config.network, diagnostics, context.pendingResources);
+      if (!data) return match;
+      src = data;
+    } else {
+      const resolved = path.resolve(path.dirname(context.sourceFile), src);
+      if (!fs.existsSync(resolved)) diagnostics.error("IMAGE_NOT_FOUND", "Image file '" + src + "' does not exist.");
+      const extension = path.extname(src).toLowerCase();
+      if (![".png", ".jpg", ".jpeg", ".svg"].includes(extension)) diagnostics.error("UNSUPPORTED_IMAGE_TYPE", "Unsupported image type '" + extension + "'.");
+    }
     const id = attributes?.match(/(?:^|\s)#([A-Za-z][A-Za-z0-9:_-]*)/)?.[1];
     if (id) {
       if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
@@ -622,7 +633,8 @@ export function compile(source: string, file = "document.md", options: CompileOp
   diagnoseMathCommands(source, loaded.config, diagnostics, file);
   validateTableMerges(loaded.body, diagnostics);
   const extractedStyles = extractStyleBlocks(loaded.body, diagnostics);
-  const importedStyles = loadImportedStyles(loaded.config, file, diagnostics);
+  const pendingResources = new Set<string>();
+  const importedStyles = loadImportedStyles(loaded.config, file, diagnostics, pendingResources);
   const styleCss = renderStyleCss(extractedStyles, importedStyles);
   const pagebreakLines = extractedStyles.body.split(/\r?\n/).map((line, index) => ({ line: line.trim(), index })).filter((item) => item.line === "<pagebreak />");
   const bodyLines = extractedStyles.body.split(/\r?\n/);
@@ -642,6 +654,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     sourceText: source,
     config: loaded.config,
     mathInspector: options.mathInspector ? { sourceText: source, sourceFile: file, cursor: 0, ordinal: 0 } : undefined,
+    pendingResources,
   };
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
   let html = renderMarkdownBody(extractedStyles.body, loaded.config, context, diagnostics);
@@ -695,9 +708,23 @@ export function compile(source: string, file = "document.md", options: CompileOp
     const offset = candidates.map((value) => source.indexOf(value)).find((value) => value >= 0) ?? 0;
     diagnostic.location = locationFor(source, file, offset, Math.min(source.length, offset + Math.max(1, candidates[0]?.length ?? 1)));
   }
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:" + SERIF_STACK + ";max-width:180mm;margin:25mm auto;line-height:1.6}code,pre,kbd,samp{font-family:" + MONO_STACK + "}p,li,dd,.callout-body{text-align:justify;hyphens:auto;text-wrap:pretty}:lang(ja){line-break:strict;text-autospace:normal;text-spacing-trim:normal}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font-size:.9em;font-family:" + MONO_STACK + "}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:" + SERIF_STACK + ";max-width:180mm;margin:25mm auto;line-height:1.6}code,pre,kbd,samp{font-family:" + MONO_STACK + "}p,li,dd,.callout-body{text-align:justify;hyphens:auto;text-wrap:pretty}:lang(ja){line-break:strict;text-autospace:normal;text-spacing-trim:normal}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font-size:.9em;font-family:" + MONO_STACK + "}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics, pendingResources: [...pendingResources] };
 }
 
 export function compileFile(file: string, options: CompileOptions = {}): CompileResult {
   return compile(fs.readFileSync(file, "utf8"), path.resolve(file), options);
+}
+
+/** Compiles a file, fetching allowed external resources that are not cached yet and compiling again. */
+export async function compileFileWithResources(file: string, options: CompileOptions & { resetCache?: boolean } = {}): Promise<CompileResult> {
+  if (options.resetCache) resetResourceCache();
+  const first = compileFile(file, options);
+  if (!first.pendingResources.length) return first;
+  const failures = await fetchRemoteResources(first.pendingResources, first.config.network);
+  const result = compileFile(file, options);
+  for (const item of result.diagnostics.items) {
+    const failure = item.code === "REMOTE_RESOURCE_UNAVAILABLE" ? failures.find((entry) => item.message.includes("'" + entry.url + "'")) : undefined;
+    if (failure) { item.code = "REMOTE_RESOURCE_FAILED"; item.message = "External resource '" + failure.url + "' could not be fetched: " + failure.error; }
+  }
+  return result;
 }

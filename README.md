@@ -15,7 +15,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 - **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, running heads, page numbers, footnotes at the bottom of each page, page styles and page breaks, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.
-- **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External resources need an explicit HTTPS allowlist.
+- **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External images and CSS assets need an explicit HTTPS allowlist, are verified and cached by content hash, and are embedded in the output.
 
 ## Requirements
 
@@ -82,8 +82,8 @@ The full versions are [examples/minimal.en.md](examples/minimal.en.md) and [exam
 Every invocation names a subcommand: `build`, `preview`, `init`, or `fonts`. The old form without a subcommand is no longer supported.
 
 ```bash
-marktexset build input.md [-o output.html] [--format html|pdf|json] [--force]
-marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector]
+marktexset build input.md [-o output.html] [--format html|pdf|json] [--force] [--reset-cache]
+marktexset preview input.md [--port 3000] [--host 127.0.0.1] [--math-inspector | --no-math-inspector] [--reset-cache]
 marktexset init path/to/document [--language en|ja] [--force]
 marktexset fonts install [--force] | marktexset fonts status
 ```
@@ -113,6 +113,21 @@ The server listens on `http://127.0.0.1:3000/`. It does not open a browser for y
 - Pass `--host` to listen on another address. For any non-loopback address, Preview prints a warning, because any device that can reach that address can read the document.
 
 The **math inspector** (enabled by default in Preview) shows the source position, original TeX, rendered DOM, and computed styles for any formula you select. It works only in Preview and adds nothing to HTML or PDF builds.
+
+## External resources
+
+Remote images and CSS assets are refused unless the root Frontmatter allows the exact HTTPS host:
+
+```yaml
+---
+mathmd:
+  network:
+    allow: true
+    domains: ["images.example.org"]
+---
+```
+
+Fetched files are cached by SHA-256 and embedded in the output as data URIs, so later builds work offline. Pass `--reset-cache` to `build` or `preview` to fetch them again.
 
 ## Documentation
 

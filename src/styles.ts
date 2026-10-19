@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveRemoteResource, type NetworkPolicy } from "./resources.js";
 
 export interface ExtractedStyles { body: string; global: string[]; scoped: Array<{ id: string; css: string }>; }
 
@@ -21,12 +22,13 @@ function safePath(value: string, base: string, diagnostics: { error: (code: stri
   return resolved;
 }
 
-function inlineCssAssets(css: string, cssFile: string, diagnostics: { error: (code: string, message: string) => void }): string {
+function inlineCssAssets(css: string, cssFile: string, diagnostics: { error: (code: string, message: string) => void }, network: NetworkPolicy | undefined, pending: Set<string>): string {
   return css.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi, (match, _quote: string, source: string) => {
-    if (/^(?:data:|https?:|#)/i.test(source)) {
-      if (/^https?:/i.test(source)) diagnostics.error("CSS_EXTERNAL_ASSET", "External CSS assets are not allowed.");
-      return match;
+    if (/^https?:/i.test(source)) {
+      const data = resolveRemoteResource(source, "css-asset", network, diagnostics, pending);
+      return data ? "url(\"" + data + "\")" : match;
     }
+    if (/^(?:data:|#)/i.test(source)) return match;
     const file = safePath(source, path.dirname(cssFile), diagnostics);
     if (!file) return match;
     const mime = path.extname(file).toLowerCase() === ".svg" ? "image/svg+xml" : path.extname(file).toLowerCase() === ".png" ? "image/png" : "application/octet-stream";
@@ -51,7 +53,7 @@ export function extractStyleBlocks(source: string, diagnostics: { error: (code: 
   return { body, global, scoped };
 }
 
-export function loadImportedStyles(config: any, sourceFile: string, diagnostics: { error: (code: string, message: string) => void }): string[] {
+export function loadImportedStyles(config: any, sourceFile: string, diagnostics: { error: (code: string, message: string) => void }, pending: Set<string> = new Set()): string[] {
   const imports = config.style?.import;
   if (!Array.isArray(imports)) return [];
   const loaded = new Set<string>();
@@ -63,7 +65,7 @@ export function loadImportedStyles(config: any, sourceFile: string, diagnostics:
     loaded.add(file);
     const content = fs.readFileSync(file, "utf8");
     validateCss(content, diagnostics);
-    css.push(inlineCssAssets(content, file, diagnostics));
+    css.push(inlineCssAssets(content, file, diagnostics, config.network, pending));
   }
   return css;
 }

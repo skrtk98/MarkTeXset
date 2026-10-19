@@ -3,12 +3,12 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { compileFile, type CompileResult } from "./compiler.js";
+import { compileFileWithResources, type CompileResult } from "./compiler.js";
 import { Diagnostics } from "./diagnostics.js";
 import { FONT_FILES, fontDirectory, fontFaceCss } from "./fonts.js";
 import { inspectLayout } from "./pdf.js";
 
-interface PreviewOptions { input: string; port: number; host: string; mathInspector?: boolean; }
+interface PreviewOptions { input: string; port: number; host: string; mathInspector?: boolean; resetCache?: boolean; }
 
 // Escape characters that could close an inline <script> or break JavaScript string parsing.
 function json(value: unknown): string { return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029"); }
@@ -109,11 +109,11 @@ function dependencies(input: string): string[] {
 
 export async function startPreview(options: PreviewOptions): Promise<void> {
   const input = path.resolve(options.input);
-  const initial = compileFile(input);
+  const initial = await compileFileWithResources(input, { resetCache: options.resetCache });
   const configuredInspector = initial.config.preview?.["math-inspector"] ?? {};
   const inspectorEnabled = options.mathInspector ?? configuredInspector.enabled !== false;
   const inspectorOpen = configuredInspector.open === true;
-  let current = inspectorEnabled ? compileFile(input, { mathInspector: true }) : initial;
+  let current = inspectorEnabled ? await compileFileWithResources(input, { mathInspector: true }) : initial;
   const inspectCurrentLayout = async () => {
     if (current.diagnostics.hasErrors) return;
     try {
@@ -156,7 +156,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
     building = true;
     broadcast({ type: "status", state: "building", revision });
     try {
-      current = inspectorEnabled ? compileFile(input, { mathInspector: true }) : compileFile(input);
+      current = await compileFileWithResources(input, inspectorEnabled ? { mathInspector: true } : {});
       buildFailure = undefined;
       await inspectCurrentLayout();
       revision++;

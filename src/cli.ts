@@ -3,7 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { compileFile } from "./compiler.js";
+import { compileFileWithResources, type CompileResult } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
 import { FONT_FILES, fontDirectory, installFonts, missingFontFiles } from "./fonts.js";
 import { startPreview } from "./preview.js";
@@ -15,18 +15,20 @@ function usage(message?: string): never {
   process.exit(2);
 }
 
-function parseOutput(args: string[]): { output?: string; format: string; force: boolean } {
+function parseOutput(args: string[]): { output?: string; format: string; force: boolean; resetCache: boolean } {
   let output: string | undefined;
   let format = "html";
   let force = false;
+  let resetCache = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-o" || args[i] === "--output") output = args[++i] ?? usage("Missing output path.");
     else if (args[i] === "--format") format = args[++i] ?? "";
     else if (args[i] === "--force") force = true;
+    else if (args[i] === "--reset-cache") resetCache = true;
     else usage("Unknown option '" + args[i] + "'.");
   }
   if (format !== "html" && format !== "pdf" && format !== "json") usage("Unsupported format '" + format + "'.");
-  return { output, format, force };
+  return { output, format, force, resetCache };
 }
 
 function requireMarkdownInput(input: string): string {
@@ -35,7 +37,7 @@ function requireMarkdownInput(input: string): string {
   return path.resolve(input);
 }
 
-function report(result: ReturnType<typeof compileFile>, format: string): void {
+function report(result: CompileResult, format: string): void {
   if (format === "json") process.stdout.write(JSON.stringify(result.diagnostics.toJSON(), null, 2) + "\n");
   else if (result.diagnostics.items.length) process.stderr.write(formatDiagnosticsText(result.diagnostics) + "\n");
 }
@@ -46,7 +48,7 @@ async function build(args: string[]): Promise<void> {
   const options = parseOutput(args.slice(1));
   if (options.format === "json") {
     // JSON mode writes only diagnostics to stdout, so no output file is checked or written.
-    const result = compileFile(input);
+    const result = await compileFileWithResources(input, { resetCache: options.resetCache });
     report(result, options.format);
     // Set exitCode instead of exiting so piped stdout is fully flushed.
     if (result.diagnostics.hasErrors) process.exitCode = 1;
@@ -55,7 +57,7 @@ async function build(args: string[]): Promise<void> {
   const output = path.resolve(options.output ?? input.slice(0, -3) + (options.format === "pdf" ? ".pdf" : ".html"));
   if (!fs.existsSync(path.dirname(output))) usage("Output directory does not exist: " + path.dirname(output));
   if (fs.existsSync(output) && !options.force) usage("Output file exists; use --force to overwrite: " + output);
-  const result = compileFile(input);
+  const result = await compileFileWithResources(input, { resetCache: options.resetCache });
   if (result.diagnostics.hasErrors) { report(result, options.format); process.exitCode = 1; return; }
   if (options.format === "pdf") await renderPdf(result, output, input);
   else if (options.format === "html") fs.writeFileSync(output, result.html, "utf8");
@@ -91,17 +93,19 @@ function preview(args: string[]): void {
   let port = 3000;
   let host = "127.0.0.1";
   let mathInspector: boolean | undefined;
+  let resetCache = false;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "-p" || args[i] === "--port") port = Number(args[++i]);
     else if (args[i] === "--host") host = args[++i] ?? usage("Missing host.");
     else if (args[i] === "--math-inspector") mathInspector = true;
     else if (args[i] === "--no-math-inspector") mathInspector = false;
+    else if (args[i] === "--reset-cache") resetCache = true;
     else usage("Unknown option '" + args[i] + "'.");
   }
   if (!Number.isInteger(port) || port < 1 || port > 65535) usage("Port must be an integer from 1 to 65535.");
   if (!net.isIP(host) && !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host)) usage("Host is not a valid IP address or hostname.");
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") console.error("Warning: preview is accessible from clients that can reach " + host + ".");
-  startPreview({ input, port, host, mathInspector }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
+  startPreview({ input, port, host, mathInspector, resetCache }).catch((error) => { console.error("Preview server error: " + error.message); process.exit(1); });
 }
 
 async function fonts(args: string[]): Promise<void> {
