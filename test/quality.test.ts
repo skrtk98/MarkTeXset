@@ -28,6 +28,25 @@ test("line-end punctuation set half-width is not reported as overfull", () => {
   assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 0);
 });
 
+test("merges line fragments split by inline math into one visual line", () => {
+  const fragments = `<line xMin="72" yMin="100" xMax="200" yMax="112"><word xMin="72" yMin="100" xMax="200" yMax="112">（</word></line><line xMin="230" yMin="101" xMax="500" yMax="112"><word xMin="230" yMin="101" xMax="500" yMax="112">）が列フルランクのとき</word></line>`;
+  const [visual] = parseBboxLayout(page([fragments])).flatMap((item) => item.lines);
+  assert.equal(visual.text, "（ ）が列フルランクのとき");
+  assert.equal(visual.xMin, 72);
+  assert.equal(visual.xMax, 500);
+  assert.equal(analyzeLayout(parseBboxLayout(page([...Array.from({ length: 10 }, (_, index) => line(130 + index * 12, 500, "本文の行がここまで続いている")), fragments]))).kinsokuViolations, 0);
+});
+
+test("counts space left above footnotes as unused", () => {
+  const body = (count: number) => Array.from({ length: count }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text"));
+  const note = (y: number) => line(y, 400, "1. A footnote at the bottom of the page.");
+  const full = page([...body(50), note(712)]);
+  const short = page([...body(40), note(712)]);
+  const last = page(body(3));
+  assert.equal(analyzeLayout(parseBboxLayout(full + last)).bottomWhitespace.max, 0);
+  assert.ok(analyzeLayout(parseBboxLayout(short + last)).bottomWhitespace.max > 0.15);
+});
+
 test("protruding Latin punctuation at the line end is not reported as overfull", () => {
   const lines = [...Array.from({ length: 10 }, (_, index) => line(100 + index * 12, 500, "a full justified line of body text")), line(300, 502, "a line that ends with a hyphen-"), line(312, 502, "a line that ends with a comma,"), line(324, 502, "a line that ends with a letter")];
   assert.equal(analyzeLayout(parseBboxLayout(page(lines)), [], { protrusion: true }).overfullLines, 1);

@@ -37,10 +37,28 @@ function lineEndAllowance(line: TextLine, protrusion: boolean): number {
 export interface AnalyzeOptions { protrusion?: boolean; }
 const FALLBACK_FONTS = /Liberation|DejaVu|Noto(?!.*CJK)|Arial|Helvetica|Times|Nimbus/i;
 
-const decode = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+const decode = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
 const number = (attributes: string, name: string) => Number(attributes.match(new RegExp(name + "=\"([^\"]+)\""))?.[1] ?? "0");
 
-/** Parses `pdftotext -bbox-layout` output into pages of positioned lines. */
+// Math set as SVG has no text, so pdftotext splits a line with inline math into fragments.
+// Fragments that share most of their height belong to one visual line.
+function mergeVisualLines(lines: TextLine[]): TextLine[] {
+  const merged: TextLine[] = [];
+  for (const line of [...lines].sort((a, b) => a.yMin - b.yMin || a.xMin - b.xMin)) {
+    const height = line.yMax - line.yMin;
+    const target = merged.find((other) => Math.min(other.yMax, line.yMax) - Math.max(other.yMin, line.yMin) >= 0.5 * Math.min(height, other.yMax - other.yMin));
+    if (!target) { merged.push({ ...line }); continue; }
+    const before = line.xMin < target.xMin;
+    target.text = before ? line.text + " " + target.text : target.text + " " + line.text;
+    target.xMin = Math.min(target.xMin, line.xMin);
+    target.xMax = Math.max(target.xMax, line.xMax);
+    target.yMin = Math.min(target.yMin, line.yMin);
+    target.yMax = Math.max(target.yMax, line.yMax);
+  }
+  return merged;
+}
+
+/** Parses `pdftotext -bbox-layout` output into pages of positioned visual lines. */
 export function parseBboxLayout(xml: string): PdfPage[] {
   const pages: PdfPage[] = [];
   for (const page of xml.matchAll(/<page ([^>]*)>([\s\S]*?)<\/page>/g)) {
@@ -49,7 +67,7 @@ export function parseBboxLayout(xml: string): PdfPage[] {
       const words = [...line[2].matchAll(/<word [^>]*>([\s\S]*?)<\/word>/g)].map((word) => decode(word[1]));
       lines.push({ xMin: number(line[1], "xMin"), xMax: number(line[1], "xMax"), yMin: number(line[1], "yMin"), yMax: number(line[1], "yMax"), text: words.join(" ") });
     }
-    pages.push({ width: number(page[1], "width"), height: number(page[1], "height"), lines });
+    pages.push({ width: number(page[1], "width"), height: number(page[1], "height"), lines: mergeVisualLines(lines) });
   }
   return pages;
 }
@@ -77,6 +95,24 @@ function bodyLines(pages: PdfPage[]): TextLine[][] {
   });
 }
 
+// Footnotes sit at the page bottom: after a wide gap, a block whose first line starts with the note number.
+// Unused space runs from the last body line to the footnotes (less the rule and its skip) or to the page bottom.
+// Vivliostyle leaves the leftover space above the footnotes, LaTeX's \raggedbottom below them; both count.
+function unusedSpace(lines: TextLine[], bottom: number): number {
+  const sorted = [...lines].sort((a, b) => a.yMin - b.yMin);
+  const pitches = sorted.slice(1).map((line, index) => line.yMin - sorted[index].yMin).filter((gap) => gap > 0);
+  const pitch = percentile(pitches, 0.5) || 12;
+  let notes = sorted.length;
+  for (let index = sorted.length - 1; index > 0; index--) {
+    if (sorted[index].yMin - sorted[index - 1].yMin <= 1.3 * pitch) continue;
+    if (/^\d+\.?\s/.test(sorted[index].text)) notes = index;
+    break;
+  }
+  const textBottom = Math.max(...sorted.slice(0, notes).map((line) => line.yMax));
+  const notesBottom = Math.max(...sorted.map((line) => line.yMax));
+  return notes < sorted.length ? sorted[notes].yMin - 1.5 * pitch - textBottom + Math.max(0, bottom - notesBottom) : bottom - textBottom;
+}
+
 export function analyzeLayout(pages: PdfPage[], fontList: string[] = [], options: AnalyzeOptions = {}): QualityReport {
   const body = bodyLines(pages);
   const all = body.flat();
@@ -85,7 +121,7 @@ export function analyzeLayout(pages: PdfPage[], fontList: string[] = [], options
   const right = percentile(all.filter((line) => line.xMax - line.xMin >= 0.6 * widest).map((line) => line.xMax), 0.5);
   const top = percentile(body.filter((lines) => lines.length).map((lines) => Math.min(...lines.map((line) => line.yMin))), 0.1);
   const bottom = percentile(body.filter((lines) => lines.length).map((lines) => Math.max(...lines.map((line) => line.yMax))), 0.9);
-  const whitespace = body.slice(0, -1).filter((lines) => lines.length).map((lines) => Math.max(0, (bottom - Math.max(...lines.map((line) => line.yMax))) / Math.max(1, bottom - top)));
+  const whitespace = body.slice(0, -1).filter((lines) => lines.length).map((lines) => Math.max(0, unusedSpace(lines, bottom)) / Math.max(1, bottom - top));
   let hyphenated = 0;
   let consecutive = 0;
   let maxConsecutive = 0;
