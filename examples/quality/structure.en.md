@@ -21,17 +21,20 @@ Table 1 summarizes the decompositions discussed below. The costs are leading-ord
 
 : Standard matrix decompositions and their costs.
 
-The LU decomposition is Gaussian elimination recorded in matrix form. Without pivoting it can fail even for well-conditioned matrices, so in practice one computes $PA = LU$ with a permutation $P$ chosen by partial pivoting. The growth factor of partial pivoting is bounded by $2^{n-1}$, and although this bound is attained by contrived examples, matrices that arise in applications almost never come close to it.[^growth]
+The LU decomposition is Gaussian elimination recorded in matrix form. Without pivoting it can fail even for well-conditioned matrices, so in practice one computes $PA = LU$ with a permutation $P$ chosen by partial pivoting. The smallest example is a matrix with a zero in the pivot position, which has no LU decomposition until its rows are exchanged:
+
+$$
+\begin{pmatrix} 0 & 1 \\ 1 & 1 \end{pmatrix} = \begin{pmatrix} 0 & 1 \\ 1 & 0 \end{pmatrix} \begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix} \begin{pmatrix} 1 & 1 \\ 0 & 1 \end{pmatrix}.
+$$
+
+ The growth factor of partial pivoting is bounded by $2^{n-1}$, and although this bound is attained by contrived examples, matrices that arise in applications almost never come close to it.[^growth]
 
 ## Least squares
 
 Given $A \in \mathbb{R}^{m \times n}$ with $m > n$ and full column rank, the least squares problem asks for the vector $x$ that minimizes $\|Ax - b\|_2$. Writing $A = QR$ with $Q$ having orthonormal columns and $R$ upper triangular, and using the invariance of the Euclidean norm under orthogonal transformations, we obtain
 
 $$
-\begin{aligned}
-\|Ax - b\|_2^2 &= \|QRx - b\|_2^2 \\
-&= \|Rx - Q^\top b\|_2^2 + \|(I - QQ^\top) b\|_2^2,
-\end{aligned}
+\|Ax - b\|_2^2 = \|Rx - Q^\top b\|_2^2 + \|(I - QQ^\top) b\|_2^2,
 $$
 
 so the minimizer solves the triangular system $Rx = Q^\top b$, and the residual norm is the norm of the component of $b$ orthogonal to the range of $A$. Forming the normal equations $A^\top A x = A^\top b$ instead squares the condition number of the problem, which is why the QR approach is preferred whenever accuracy matters.
