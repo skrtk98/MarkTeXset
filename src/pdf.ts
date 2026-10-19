@@ -105,10 +105,24 @@ h1 { font-size: 1.44em; } h2 { font-size: 1.2em; } h3, h4, h5, h6 { font-size: 1
 .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
 .code-copy { display: none !important; }
-pre, table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; max-width: 100%; }
+table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; max-width: 100%; }
+/* Like LaTeX's default [tbp] placement: a figure goes to the top of its page, or of the next page when it does not fit. */
+.figure { float: top; float-reference: page; margin: 0 auto 1.4em; }
+/* Code may break across pages like a verbatim block, keeping at least three lines on each side. */
+.code-block, .callout { break-inside: auto; }
+pre, .code-block pre, .code-content { max-width: 100%; overflow: visible; orphans: 3; widows: 3; }
+.code-header, .callout-title { break-after: avoid; }
 pre, .code-block pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
 h1, h2 { string-set: mathmd-section content(text); }
+.mathmd-table { margin-left: auto; margin-right: auto; }
+/* booktabs rules, as in Pandoc's LaTeX tables; :where() keeps them below any user table style. */
+:where(.mathmd-table) { border-collapse: collapse; border-top: 0.08em solid; border-bottom: 0.08em solid; }
+:where(.mathmd-table thead tr:last-child > th) { border-bottom: 0.05em solid; }
+:where(.mathmd-table th, .mathmd-table td) { padding: 0.1em 0.5em; }
+:where(.mathmd-table th) { text-align: left; }
+.table-caption { caption-side: top; margin-bottom: 0.5em; text-align: center; }
+.figure-caption, .table-caption { font-size: 1em; }
 .document-title-heading { font-size: 1.728em; line-height: 1.25; margin: 0 0 0.6em; }
 .document-title .author, .document-title .date { font-size: 1.2em; }
 .table-of-contents { border: none !important; padding: 0 !important; background: none !important; }
