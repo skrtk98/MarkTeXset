@@ -108,6 +108,16 @@ pre, table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; 
 pre, .code-block pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
 h1, h2 { string-set: mathmd-section content(text); }
+.table-of-contents { border: none !important; padding: 0 !important; background: none !important; }
+.toc-list { list-style: none; padding-left: 0; }
+.toc-list li { display: flex; align-items: baseline; }
+.toc-list .toc-level-2 { padding-left: 1.5em; } .toc-list .toc-level-3 { padding-left: 3em; } .toc-list .toc-level-4, .toc-list .toc-level-5, .toc-list .toc-level-6 { padding-left: 4.5em; }
+.toc-list a { color: inherit; text-decoration: none; display: flex; flex: 1; align-items: baseline; }
+.toc-list a::after { content: target-counter(attr(href url), page); flex: none; padding-left: 0.5em; }
+.toc-list a::before { content: ""; order: 1; flex: 1; border-bottom: 1px dotted; margin: 0 0.3em; }
+.toc-list a::after { order: 2; }
+.toc-list .toc-level-1 { font-weight: bold; margin-top: 0.5em; }
+.toc-list .toc-level-1 > a::before { border-bottom: none; }
 .mathmd-pagebreak { break-before: page; height: 0; }
 .mathmd-footnote { float: footnote; font-size: 0.8em; line-height: 1.4; text-align: justify; }
 .mathmd-footnote-paragraph + .mathmd-footnote-paragraph { display: block; }

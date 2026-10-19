@@ -596,6 +596,20 @@ function renderTitle(config: Config): string {
   return "<header class=\"document-title\"><h1 class=\"document-title-heading\">" + escapeHtml(String(meta.title)) + "</h1>" + authorHtml + date + "</header>";
 }
 
+// Gives every heading the table of contents lists an ID, so each entry can link to it.
+function identifyTocHeadings(html: string, config: Config, references: Map<string, string>): string {
+  const used = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
+  let counter = 0;
+  return html.replace(/<h([1-6])([^>]*)>/g, (match, level: string, attributes: string) => {
+    if (attributes.includes("document-title-heading") || Number(level) > config.layout.heading.tocDepth || /\sid="/.test(attributes)) return match;
+    let id: string;
+    do id = "mathmd-section-" + ++counter; while (used.has(id));
+    used.add(id);
+    references.set(id, id);
+    return "<h" + level + attributes + " id=\"" + id + "\">";
+  });
+}
+
 function renderToc(html: string, config: Config): string {
   const tocDepth = config.layout.heading.tocDepth;
   const items = [...html.matchAll(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g)].map((match) => {
@@ -699,6 +713,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
   html = addHeadingNumbers(html, loaded.config);
   if (tocCount > 0) {
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
+    html = identifyTocHeadings(html, loaded.config, context.references);
     html = html.replace(/<div class=\"mathmd-directive mathmd-maketoc\"><\/div>/, renderToc(html, loaded.config));
   }
   html = resolveReferences(html, context.references, diagnostics, Boolean(context.mathInspector));

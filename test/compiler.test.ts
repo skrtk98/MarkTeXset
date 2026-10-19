@@ -706,3 +706,14 @@ test("keeps a code fence that follows an image as a code block", () => {
   assert.doesNotMatch(result.html, /```/);
   assert.match(result.html, /<figure id="fig:b"/);
 });
+
+test("links every table of contents entry, generating IDs for headings without one", () => {
+  const result = compile("<maketoc />\n\n# One\n\n## Two {#two}\n\n# mathmd-section-1\n");
+  assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
+  const toc = result.html.match(/<nav class="table-of-contents">[\s\S]*?<\/nav>/)![0];
+  const links = [...toc.matchAll(/<a href="#([^"]+)">/g)].map((match) => match[1]);
+  assert.equal(links.length, 3);
+  assert.equal(new Set(links).size, 3);
+  for (const id of links) assert.match(result.html, new RegExp("<h[1-6][^>]* id=\"" + id + "\""));
+  assert.ok(links.includes("two"));
+});
