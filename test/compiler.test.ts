@@ -8,6 +8,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 import WebSocket from "ws";
 import { compile } from "../src/compiler.js";
+import { formatCounter } from "../src/config.js";
 import { Diagnostics } from "../src/diagnostics.js";
 import { loadConfig } from "../src/config.js";
 
@@ -761,4 +762,20 @@ test("uses language defaults and reference templates for generated text", () => 
   assert.match(japanese.html, /<mtext href="#eq:x">\(1\)<\/mtext>[\s\S]*<mtext href="#eq:x">1<\/mtext>/, "TeX references print the bare number");
   const custom = compile("---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    heading:\n      toc: Contents\n---\n<maketoc />\n\n# A\n", file);
   assert.match(custom.html, /toc-title">Contents</, "explicit settings override language defaults");
+});
+
+test("prints every counter format that templates accept", () => {
+  assert.deepEqual([1, 4, 9, 14, 1987].map((value) => formatCounter(value, "roman")), ["i", "iv", "ix", "xiv", "mcmlxxxvii"]);
+  assert.deepEqual([1, 26, 27, 52, 53].map((value) => formatCounter(value, "Alph")), ["A", "Z", "AA", "AZ", "BA"]);
+  const result = compile("---\nmathmd:\n  layout:\n    heading:\n      numbered: true\n      h1: \"{h1.Roman}.\"\n    equation:\n      numbered: true\n      display: \"[{equation.roman}]\"\n      reference: \"Eq. {equation.roman}\"\n    figure:\n      display: \"Fig. {figure.alph}.\"\n      reference: \"Fig. {figure.alph}\"\n    table:\n      display: \"Table {table.Alph}.\"\n      reference: \"Table {table.Alph}\"\n    callouts:\n      theorem:\n        title: \"Theorem {theorem.roman}.\"\n---\n# A\n\n# B\n\n$$\nx \\\\\ny \\label{eq:y}\n$$\n\n![F](assets/phase1.5.svg){#fig:f}\n\n| x |\n|---|\n| 1 |\n\n: T {#tbl:t}\n\n> [!theorem]\n> Body.\n\n> [!theorem]\n> Body.\n\n[](#eq:y) [](#fig:f) [](#tbl:t)\n", path.resolve("examples/document.md"));
+  assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
+  assert.doesNotMatch(result.html, /\{[a-z0-9]+\.[A-Za-z]+\}/, "no placeholder is left unrendered");
+  assert.match(result.html, /<h1[^>]*>II\. B<\/h1>/);
+  assert.match(result.html, /class="equation-number"[^>]*>\[ii\]<\/span>/);
+  assert.match(result.html, /Fig\. a\. F<\/figcaption>/);
+  assert.match(result.html, /Table A\. T<\/caption>/);
+  assert.match(result.html, /Theorem ii\./);
+  assert.match(result.html, /<a href="#eq:y">Eq\. ii<\/a> <a href="#fig:f">Fig\. a<\/a> <a href="#tbl:t">Table A<\/a>/);
+  const invalid = compile("---\nmathmd:\n  layout:\n    heading:\n      h2: \"{h2.greek}\"\n---\n# A\n");
+  assert.ok(invalid.diagnostics.items.some((item) => item.code === "INVALID_COUNTER_TEMPLATE" && item.message.includes("layout.heading.h2")));
 });

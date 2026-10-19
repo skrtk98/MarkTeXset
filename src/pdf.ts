@@ -23,11 +23,12 @@ function pageMargins(value: unknown): string {
 
 function pageContent(config: Record<string, any>): string {
   const format = String(config.layout?.page?.number?.format ?? "{page.arabic}");
-  const parts = format.split("{page.arabic}");
+  const styles: Record<string, string> = { arabic: "decimal", roman: "lower-roman", Roman: "upper-roman", alph: "lower-alpha", Alph: "upper-alpha" };
+  const parts = format.split(/\{page\.([A-Za-z]+)\}/);
   const tokens: string[] = [];
   parts.forEach((part, index) => {
-    if (part) tokens.push(`"${part.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`);
-    if (index < parts.length - 1) tokens.push("counter(page)");
+    if (index % 2 === 1) tokens.push("counter(page, " + (styles[part] ?? "decimal") + ")");
+    else if (part) tokens.push(`"${part.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`);
   });
   return tokens.join(" ");
 }

@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
 import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from "pdf-lib";
-import { renderPdf } from "../src/pdf.js";
+import { pdfHtml, renderPdf } from "../src/pdf.js";
 import { missingFontFiles } from "../src/fonts.js";
 import { hyphenationPoints } from "../src/linebreak.js";
 import { parseBboxLayout } from "../src/quality.js";
@@ -140,4 +140,10 @@ test("adds page numbers to the table of contents, an outline, tags, and document
   };
   walk(pdf.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict), 0);
   assert.deepEqual(outline, ["Contents", "1. One", "  1.1. Sub one", "2. Two", "3. Three"]);
+});
+
+test("prints page numbers in the configured counter format", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    page:\n      number:\n        format: \"- {page.roman} -\"\n---\n\nText.\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(pdfHtml(result.html, result.config, process.cwd()), /content:\s*"- " counter\(page, lower-roman\) " -"/);
 });

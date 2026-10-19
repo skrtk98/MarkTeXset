@@ -61,6 +61,25 @@ const DEFAULT_CONFIG: Config = {
 const ROOT_KEYS = new Set(["meta", "import", "bibliography", "citation", "layout", "command", "style", "code", "preview", "network"]);
 const IMPORT_KEYS = new Set(["meta", "bibliography", "citation", "layout", "command", "style", "code", "preview", "network"]);
 const NUMBER_FORMATS = new Set(["arabic", "roman", "Roman", "alph", "Alph"]);
+
+/** Formats a counter value as `{name.arabic}`, `{name.roman}`, `{name.Roman}`, `{name.alph}`, or `{name.Alph}` print it. */
+export function formatCounter(value: number, format: string): string {
+  if (format === "roman" || format === "Roman") {
+    let rest = value;
+    let roman = "";
+    for (const [amount, digits] of [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]] as const) {
+      for (; rest >= amount; rest -= amount) roman += digits;
+    }
+    return format === "Roman" ? roman.toUpperCase() : roman;
+  }
+  if (format === "alph" || format === "Alph") {
+    let rest = value;
+    let letters = "";
+    for (; rest > 0; rest = Math.floor((rest - 1) / 26)) letters = String.fromCharCode(97 + (rest - 1) % 26) + letters;
+    return format === "Alph" ? letters.toUpperCase() : letters;
+  }
+  return String(value);
+}
 const CALLOUT_STYLES = new Set(["plain", "definition", "remark", "proof"]);
 const OPERATOR_FONTS = new Set(["mathrm", "mathcal", "mathbb"]);
 const BUILTIN_COMMANDS = new Set(["frac", "sqrt", "sum", "prod", "int", "lim", "sin", "cos", "log", "exp", "text", "operatorname"]);
@@ -259,7 +278,8 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"], ["layout.table.display", layout.table?.display, "table"], ["layout.table.reference", layout.table?.reference, "table"]] as Array<[string, unknown, string]>) {
     if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set([counter]));
   }
-  for (const [name, format] of Object.entries(layout.heading?.formats ?? {})) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
+  const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3"].map((name) => ["layout.heading." + name, layout.heading?.[name]])];
+  for (const [name, format] of headingFormats) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
   for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
     if (!isRecord(definition)) continue;
     if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style)) && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(String(definition.style))) diagnostics.error("INVALID_CALLOUT_STYLE", "Callout style must be a built-in style or a CSS class name.", locationFor(source, file, 0));
@@ -402,9 +422,9 @@ function normalizeConfig(config: Config): void {
   heading.tocDepth = heading["toc-depth"] ?? heading.tocDepth ?? 3;
   heading.toc = heading.toc ?? "Contents";
   heading.formats = {
-    h1: heading.h1 ?? "{h1.arabic}.",
-    h2: heading.h2 ?? "{h1.arabic}.{h2.arabic}.",
-    h3: heading.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
+    h1: heading.h1 ?? heading.formats?.h1 ?? "{h1.arabic}.",
+    h2: heading.h2 ?? heading.formats?.h2 ?? "{h1.arabic}.{h2.arabic}.",
+    h3: heading.h3 ?? heading.formats?.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
   };
   config.layout.title.dateFormat = config.layout.title["date-format"] ?? config.layout.title.dateFormat ?? "yyyy-mm-dd";
   config.layout.counter.maxDepth = config.layout.counter.maxDepth ?? config.layout.counter["max-depth"] ?? 3;

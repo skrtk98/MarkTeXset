@@ -5,7 +5,7 @@ import footnote from "markdown-it-footnote";
 import taskLists from "markdown-it-task-lists";
 import deflist from "markdown-it-deflist";
 import multiTable from "markdown-it-multimd-table";
-import { loadConfig, type Config } from "./config.js";
+import { formatCounter, loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { MONO_STACK, SERIF_STACK } from "./fonts.js";
 import { fetchRemoteResources, resetResourceCache, resolveRemoteResource } from "./resources.js";
@@ -221,7 +221,7 @@ function counterText(template: string, name: string, value: number): string {
     const leaf = expression.trim().split(">").at(-1)?.trim() ?? "";
     const pair = leaf.split(".");
     if (pair.length !== 2) return "";
-    return pair[0] === name ? String(value) : "";
+    return pair[0] === name ? formatCounter(value, pair[1]) : "";
   });
 }
 
@@ -286,7 +286,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
         const numberValue = numbered && !notag ? ++equation : 0;
-        const number = numberValue ? "<span class=\"equation-number\"" + inspectorAttributes(context, "number", String(numberValue), sourceRange.start, sourceRange.end) + " data-mathmd-number=\"" + numberValue + "\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">(" + numberValue + ")</span>" : "";
+        const number = numberValue ? "<span class=\"equation-number\"" + inspectorAttributes(context, "number", String(numberValue), sourceRange.start, sourceRange.end) + " data-mathmd-number=\"" + numberValue + "\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">" + escapeHtml(counterLabel(String(config.layout.equation.display ?? "({equation.arabic})"), "equation", numberValue)) + "</span>" : "";
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
@@ -327,7 +327,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
 }
 
 function counterLabel(template: string, counter: string, value: number): string {
-  return template.split("{" + counter + ".arabic}").join(String(value));
+  return template.replace(/\{([A-Za-z0-9-]+)\.([A-Za-z]+)\}/g, (match, name: string, format: string) => name === counter ? formatCounter(value, format) : match);
 }
 
 function figureLabel(template: string, value: number): string {
@@ -539,7 +539,7 @@ function addHeadingNumbers(html: string, config: Config): string {
     counters[level]++;
     for (let i = level + 1; i <= 6; i++) counters[i] = 0;
     const format = String(formats["h" + level] ?? "");
-    const number = format.replace(/\{h([1-6])\.arabic\}/g, (_x: string, n: string) => String(counters[Number(n)] || 0));
+    const number = format.replace(/\{h([1-6])\.([A-Za-z]+)\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
     return "<h" + level + attrs + ">" + escapeHtml(number) + " " + content + "</h" + level + ">";
   });
 }
