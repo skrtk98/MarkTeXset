@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { compileFile } from "./compiler.js";
 import { formatDiagnosticsText } from "./diagnostics.js";
 import { startPreview } from "./preview.js";
@@ -111,4 +112,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   else usage("Unknown command '" + command + "'.");
 }
 
-if (import.meta.url === "file://" + process.argv[1]) main().catch((error) => { console.error("CLI error: " + error.message); process.exit(1); });
+// npm installs bins as symlinks, so compare real paths rather than raw argv.
+function invokedDirectly(): boolean {
+  if (!process.argv[1]) return false;
+  try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (invokedDirectly()) main().catch((error) => { console.error("CLI error: " + error.message); process.exit(1); });

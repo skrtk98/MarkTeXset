@@ -374,6 +374,17 @@ test("build writes a sibling HTML file and does not overwrite without --force", 
   assert.throws(() => execFileSync(process.execPath, ["--import", "tsx", cli, "build", input], { encoding: "utf8", stdio: "pipe" }));
 });
 
+test("CLI runs when invoked through a symlink, as npm installs bins", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-bin-"));
+  const link = path.join(directory, "marktexset");
+  fs.symlinkSync(path.resolve("src/cli.ts"), link);
+  const result = spawnSync(process.execPath, ["--import", "tsx", link, "--help"], { encoding: "utf8" });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Usage: marktexset/);
+  const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  assert.equal(packageJson.bin.marktexset, "dist/src/cli.js");
+});
+
 test("init creates the minimal English or Japanese frontmatter", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-init-"));
   const cli = path.resolve("src/cli.ts");
