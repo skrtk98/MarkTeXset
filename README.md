@@ -12,7 +12,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 - **Theorem environments**: Callouts such as `> [!theorem]` with configurable titles, counters, and styles (`plain`, `definition`, `remark`, `proof`, or a custom class).
 - **Document structure**: numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables.
 - **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files.
-- **PDF output**: pagination with Paged.js in a Playwright-managed Chromium, page styles and page breaks, and checks for overflow, overlap, and blank pages.
+- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, running heads, page numbers, footnotes at the bottom of each page, page styles and page breaks, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.
 - **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External resources need an explicit HTTPS allowlist.
@@ -97,7 +97,7 @@ marktexset preview document.md
 The server listens on `http://127.0.0.1:3000/`. It does not open a browser for you; open the printed URL yourself.
 
 - When you save the Markdown file or any of its dependencies (imports, bibliographies, images, CSS), Preview rebuilds the document and updates connected browsers over WebSocket.
-- Each build runs the same Paged.js layout check as PDF output and shows any overflow, overlap, or blank-page problems in an overlay. Preview never writes a PDF.
+- Each build runs the same Vivliostyle layout check as PDF output and shows any overflow, overlap, or blank-page problems in an overlay. Preview never writes a PDF.
 - When a build fails, the server keeps running and keeps showing the last good preview together with the diagnostics.
 - Preview serves only the generated page and the local assets the document references inside its own directory. Symbolic links that point outside that directory are not served, WebSocket connections from other origins are rejected, and requests are refused unless their `Host` header is an IP address, `localhost`, or the `--host` value, which blocks DNS rebinding.
 - Pass `--host` to listen on another address. For any non-loopback address, Preview prints a warning, because any device that can reach that address can read the document.
@@ -134,3 +134,7 @@ npm run check   # build, then test
 ## TeX baseline
 
 [baseline/](baseline/) contains a Docker environment that renders documents with Pandoc and LuaLaTeX for comparing typesetting quality. It is not part of the MarkTeXset build.
+
+## Third-party licenses
+
+PDF pagination uses [Vivliostyle](https://vivliostyle.org/), which is licensed under AGPL-3.0. Distributing MarkTeXset together with Vivliostyle requires AGPL-compatible terms. Documents and PDFs produced with MarkTeXset are not affected.

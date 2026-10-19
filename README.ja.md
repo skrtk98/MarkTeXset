@@ -12,7 +12,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 - **定理環境**：`> [!theorem]` などの Callout。タイトル、カウンター、style（`plain`、`definition`、`remark`、`proof`、カスタムクラス）を設定できる。
 - **文書構造**：番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。
 - **参照と引用**：数式・見出し・Callout の ID は一つの名前空間を共有し、通常の Markdown の fragment link で参照する。ローカルの `.bib` からの `[@key]` 引用に対応する。
-- **PDF 出力**：Playwright 管理下の Chromium と Paged.js でページ分割する。ページスタイルと改ページを扱い、はみ出し・重なり・空白ページを検査する。
+- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。柱、ページ番号、ページ下部の脚注、ページスタイル、改ページを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
 - **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部リソースには HTTPS の明示的な許可リストが必要。
@@ -97,7 +97,7 @@ marktexset preview document.md
 サーバーは `http://127.0.0.1:3000/` で待ち受ける。ブラウザは自動では開かないので、表示された URL を開く。
 
 - Markdown または依存ファイル（import、文献、画像、CSS）を保存すると再ビルドし、接続中のブラウザを WebSocket 経由で更新する。
-- ビルドのたびに PDF と共通の Paged.js レイアウト検査を行い、はみ出し・重なり・空白ページをオーバーレイに表示する。Preview は PDF を生成しない。
+- ビルドのたびに PDF と共通の Vivliostyle レイアウト検査を行い、はみ出し・重なり・空白ページをオーバーレイに表示する。Preview は PDF を生成しない。
 - ビルドに失敗してもサーバーは停止せず、直前の正常なプレビューと診断を表示し続ける。
 - 配信するのは生成ページと、文書ディレクトリ内にあり文書が参照するローカル資産だけである。ディレクトリ外を指すシンボリックリンクは配信せず、別オリジンからの WebSocket 接続は拒否する。DNS リバインディング対策として、`Host` ヘッダーが IP アドレス、`localhost`、`--host` の値のいずれでもないリクエストも拒否する。
 - `--host` で待受アドレスを変更できる。ループバック以外のアドレスでは、そのアドレスに到達できる端末から文書を閲覧できる旨を警告する。
@@ -134,3 +134,7 @@ npm run check   # build の後に test を実行する
 ## TeX baseline
 
 [baseline/](baseline/) には、Pandoc と LuaLaTeX で文書を組版し、組版品質を比較するための Docker 環境がある。MarkTeXset のビルド経路ではない。
+
+## サードパーティのライセンス
+
+PDF のページ分割には AGPL-3.0 の [Vivliostyle](https://vivliostyle.org/) を使う。MarkTeXset を Vivliostyle と一緒に配布する場合は AGPL 互換の条件が必要になる。MarkTeXset で作成した文書や PDF には影響しない。

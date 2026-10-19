@@ -41,4 +41,4 @@ curl http://127.0.0.1:35001/__marktexset/status
 
 ## 環境上の補足
 
-この環境のPaged.js 0.4.3はChromium headless上でページchunk生成が完了しないため、5秒で検査を打ち切り、元HTMLを復元してChromiumのネイティブA4印刷へフォールバックする。overflow/overlap検査は復元後のraw documentにも適用している。したがって本レポートのPDF品質判定は完了しているが、Paged.js固有のchunk境界を保証する検証は未実施であり、Paged.jsまたはChromiumの組合せを更新した際に再確認が必要である。
+（この記述はPaged.js時代のものである。現在はVivliostyleに移行済みで、フォールバックは行わない。）この環境のPaged.js 0.4.3はChromium headless上でページchunk生成が完了しないため、5秒で検査を打ち切り、元HTMLを復元してChromiumのネイティブA4印刷へフォールバックする。overflow/overlap検査は復元後のraw documentにも適用している。したがって本レポートのPDF品質判定は完了しているが、Paged.js固有のchunk境界を保証する検証は未実施であり、Paged.jsまたはChromiumの組合せを更新した際に再確認が必要である。

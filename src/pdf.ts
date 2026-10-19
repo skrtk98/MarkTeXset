@@ -40,112 +40,163 @@ function embedLocalImages(html: string, baseDirectory: string): string {
   });
 }
 
-function pdfHtml(html: string, config: Record<string, any>, baseDirectory: string): string {
+const PAGE_SIZES = new Set(["A3", "A4", "A5", "B4", "B5", "JIS-B4", "JIS-B5", "letter", "legal", "ledger"]);
+const ORIGIN = "http://marktexset.invalid";
+
+function pageSize(value: unknown): string {
+  return typeof value === "string" && PAGE_SIZES.has(value) ? value : "A4";
+}
+
+// Vivliostyle floats `.mathmd-footnote` spans to the page bottom, so each first
+// reference is replaced by its note text and later references repeat the number.
+function inlineFootnotes(html: string): string {
+  const notes = new Map<string, string>();
+  const section = html.match(/<hr class="footnotes-sep">\s*<section class="footnotes">[\s\S]*?<\/section>\s*/);
+  if (!section) return html;
+  for (const item of section[0].matchAll(/<li id="fn(\d+)" class="footnote-item">([\s\S]*?)<\/li>/g)) {
+    const body = item[2].replace(/\s*<a href="#fnref[^"]*" class="footnote-backref">[^<]*<\/a>/g, "").replace(/<p>/g, "<span class=\"mathmd-footnote-paragraph\">").replace(/<\/p>/g, "</span>").trim();
+    notes.set(item[1], body);
+  }
+  const used = new Set<string>();
+  return html.replace(section[0], "").replace(/<sup class="footnote-ref"><a href="#fn(\d+)" id="fnref[^"]*">[^<]*<\/a><\/sup>/g, (match, id: string) => {
+    const note = notes.get(id);
+    if (note === undefined) return match;
+    if (used.has(id)) return "<sup class=\"mathmd-footnote-repeat\">" + id + "</sup>";
+    used.add(id);
+    return "<span class=\"mathmd-footnote\">" + note + "</span>";
+  });
+}
+
+// A page style marker placed right before page breaks applies to the page that follows them.
+function bindPageStyleMarkers(html: string): string {
+  const breaks = "(?:\\s*<div class=\"mathmd-directive mathmd-pagebreak\"[^>]*><\\/div>)+";
+  return html.replace(new RegExp("(<div class=\"mathmd-directive mathmd-pagestyle\" data-name=\"[^\"]*\"><\\/div>)(" + breaks + ")", "g"), "$2$1");
+}
+
+export function pdfHtml(html: string, config: Record<string, any>, baseDirectory: string): string {
   const margins = pageMargins(config.layout?.margins);
-  const pageStyle = String(config.layout?.page?.style ?? "plain");
-  const pageNumber = config.layout?.page?.number?.visible === false || pageStyle === "empty" ? "none" : pageContent(config);
-  const pageHeader = pageStyle === "headings" ? "string(marktex-section)" : "none";
-  const phaseTwoCss = `<style>
-@page, @page plain { size: A4; margin: ${margins}; @top-center { content: ${pageHeader}; font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
-@page empty { size: A4; margin: ${margins}; @top-center { content: none; } @bottom-center { content: none; } }
-@page headings { size: A4; margin: ${margins}; @top-center { content: string(marktex-section); font: 10pt serif; } @bottom-center { content: ${pageNumber}; font: 10pt serif; } }
+  const size = pageSize(config.layout?.size);
+  const pageNumber = config.layout?.page?.number?.visible === false ? "none" : pageContent(config) || "none";
+  const css = `<style data-mathmd-style-origin="pdf">
+@page { size: ${size}; margin: ${margins}; @top-center { content: string(mathmd-section, first); font-size: 9pt; } @bottom-center { content: ${pageNumber}; font-size: 9pt; } }
 html, body { margin: 0 !important; max-width: none !important; }
-body { font-family: serif; }
-.mathmd-pagebreak { break-before: page; page-break-before: always; height: 0; }
-.mathmd-pagestyle[data-name="empty"] { break-after: avoid; }
- .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
+.mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
 .code-copy { display: none !important; }
-.math-block { break-inside: avoid; }
-pre, table, .callout, .math-block, img { break-inside: avoid; max-width: 100%; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-p { break-inside: avoid; }
+pre, table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; max-width: 100%; }
+pre, .code-block pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-.mathmd-page-style-headings h1, .mathmd-page-style-headings h2 { string-set: marktex-section content(text); }
-.table-of-contents { break-inside: avoid; }
-@media print { .mathmd-pagebreak { break-before: page; page-break-before: always; } }
+h1, h2 { string-set: mathmd-section content(text); }
+.mathmd-pagebreak { break-before: page; height: 0; }
+.mathmd-footnote { float: footnote; font-size: 0.8em; line-height: 1.4; text-align: justify; }
+.mathmd-footnote-paragraph + .mathmd-footnote-paragraph { display: block; }
+.mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-size: 0.7em; vertical-align: super; line-height: 0; }
+.mathmd-footnote::footnote-marker { content: counter(footnote) ". "; }
 </style>`;
-  return embedLocalImages(html.replace("<head>", "<head><base href=\"" + pathToFileURL(baseDirectory + path.sep).href + "\">").replace("<body>", "<body class=\"mathmd-page-style-" + pageStyle + "\">").replace("</head>", phaseTwoCss + "</head>"), baseDirectory);
+  const prepared = bindPageStyleMarkers(inlineFootnotes(html));
+  return embedLocalImages(prepared.replace("</head>", css + "</head>"), baseDirectory);
+}
+
+function viewerHtml(): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style>
+<script>var module={exports:{}},exports=module.exports;</script><script src="${ORIGIN}/vivliostyle.js"></script>
+<script>window.vivliostyle=module.exports;</script></head><body><div id="viewport"></div><script>
+window.__mathmd={done:false,error:null};
+var viewer=new vivliostyle.CoreViewer({viewportElement:document.getElementById("viewport"),window:window,debug:false},{});
+viewer.addListener("readystatechange",function(){if(viewer.readyState==="complete")window.__mathmd.done=true;});
+viewer.addListener("error",function(event){var detail=event&&event.content;window.__mathmd.error=String(detail&&(detail.message||detail.error&&detail.error.message)||"Vivliostyle failed");});
+viewer.loadDocument({url:"${ORIGIN}/document.html"},{},{});
+</script></body></html>`;
 }
 
 export interface LayoutDiagnostic { code: string; message: string; }
 
-async function preparePagedPage(page: Page, result: CompileResult, sourceFile: string): Promise<void> {
-  await page.setContent(pdfHtml(result.html, result.config, path.dirname(sourceFile)), { waitUntil: "load" });
-  await page.evaluate(() => Promise.all([...document.images].map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); }))));
-  const pagedPath = path.resolve(path.dirname(require.resolve("pagedjs")), "../dist/paged.polyfill.js");
-  await page.addScriptTag({ path: pagedPath });
-  try {
-    await page.waitForFunction(() => document.querySelectorAll(".pagedjs_page").length > 0, undefined, { timeout: 5_000 });
-  } catch {
-    // Paged.js can fail to chunk in restricted/headless environments. Restore
-    // the source document so native Chromium printing still produces a usable
-    // PDF and raw-page diagnostics can run.
-    await page.setContent(pdfHtml(result.html, result.config, path.dirname(sourceFile)), { waitUntil: "load" });
-    return;
-  }
-  await page.evaluate(() => document.fonts?.ready);
-  let previousPageCount = -1;
-  let stableCycles = 0;
-  for (let cycle = 0; cycle < 300 && stableCycles < 3; cycle++) {
-    const pageCount = await page.locator(".pagedjs_page").count();
-    if (pageCount === previousPageCount) stableCycles++;
-    else { previousPageCount = pageCount; stableCycles = 0; }
-    if (stableCycles < 3) await page.waitForTimeout(100);
-  }
+async function paginate(page: Page, result: CompileResult, sourceFile: string): Promise<void> {
+  const documentHtml = pdfHtml(result.html, result.config, path.dirname(sourceFile));
+  const vivliostyle = fs.readFileSync(require.resolve("@vivliostyle/core"), "utf8");
+  // Serve everything from a private origin; nothing reaches the network.
+  await page.route("**/*", (route) => {
+    const url = route.request().url();
+    if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml() });
+    if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
+    if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
+    return route.abort();
+  });
+  await page.goto(ORIGIN + "/viewer.html");
+  await page.waitForFunction(() => (window as any).__mathmd.done || (window as any).__mathmd.error, undefined, { timeout: 120_000 });
+  const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
+  if (error) throw new Error("Vivliostyle pagination failed: " + error);
+  await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"));
+}
+
+// Page styles follow LaTeX's \pagestyle: a marker switches the style from its page onward.
+async function applyPageStyles(page: Page, initial: string): Promise<void> {
+  await page.evaluate((initialStyle) => {
+    let style = initialStyle;
+    for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
+      const markers = container.querySelectorAll<HTMLElement>(".mathmd-pagestyle");
+      if (markers.length) style = markers[markers.length - 1].getAttribute("data-name") ?? style;
+      if (!["empty", "plain", "headings"].includes(style)) style = "plain";
+      container.setAttribute("data-mathmd-page-style", style);
+      const header = container.querySelector<HTMLElement>("[data-vivliostyle-page-margin-box=top-center]");
+      const footer = container.querySelector<HTMLElement>("[data-vivliostyle-page-margin-box=bottom-center]");
+      if (header && style !== "headings") header.style.visibility = "hidden";
+      if (footer && style === "empty") footer.style.visibility = "hidden";
+    }
+  }, initial);
 }
 
 async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
   return page.evaluate(() => {
-      const diagnostics: Array<{ code: string; message: string }> = [];
-      const pagedPages = [...document.querySelectorAll<HTMLElement>(".pagedjs_page")];
-      const pages = pagedPages.length ? pagedPages : [document.body];
-      for (const page of pages) {
-        const content = page.querySelector<HTMLElement>(".pagedjs_page_content") ?? page;
-        const pageRect = content.getBoundingClientRect();
-        for (const element of [...content.querySelectorAll<HTMLElement>("pre, table, .math-block, img")]) {
-          const rect = element.getBoundingClientRect();
-          const longPreformattedLine = element.tagName === "PRE" && [...(element.textContent ?? "").split("\n")].some((line) => line.length > 120);
-          if (rect.right > pageRect.right + 1 || rect.left < pageRect.left - 1 || rect.bottom > pageRect.bottom + 1 || element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1 || longPreformattedLine) {
-            diagnostics.push({ code: "LAYOUT_OVERFLOW", message: `${element.tagName.toLowerCase()} exceeds the page content area.` });
-          }
+    const diagnostics: Array<{ code: string; message: string }> = [];
+    for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
+      const area = container.querySelector<HTMLElement>("[data-vivliostyle-page-area]");
+      if (!area) continue;
+      const areaRect = area.getBoundingClientRect();
+      for (const element of area.querySelectorAll<HTMLElement>("pre, table, .math-block, img")) {
+        const rect = element.getBoundingClientRect();
+        const longPreformattedLine = element.tagName === "PRE" && (element.textContent ?? "").split("\n").some((line) => line.length > 120);
+        if (rect.right > areaRect.right + 1 || rect.left < areaRect.left - 1 || rect.bottom > areaRect.bottom + 1 || element.scrollWidth > element.clientWidth + 1 || longPreformattedLine) {
+          diagnostics.push({ code: "LAYOUT_OVERFLOW", message: `${element.tagName.toLowerCase()} exceeds the page content area.` });
         }
-        const blocks = [...content.children].map((element) => element as HTMLElement).filter((element) => element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0);
-        for (let i = 0; i < blocks.length; i++) {
-          const a = blocks[i].getBoundingClientRect();
-          for (let j = i + 1; j < blocks.length; j++) {
-            const b = blocks[j].getBoundingClientRect();
-            const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
-            if (overlap) diagnostics.push({ code: "LAYOUT_OVERLAP", message: "Block elements overlap on a page." });
-          }
-        }
-        if (!content.textContent?.trim() && !content.querySelector("svg, img, table")) diagnostics.push({ code: "EMPTY_PAGE", message: "A blank page was generated." });
       }
-      return diagnostics;
-    });
+      const blocks = [...area.querySelectorAll<HTMLElement>("body > *, [data-vivliostyle-column] > * > *")].filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && !element.closest(".mathmd-footnote");
+      });
+      for (let i = 0; i < blocks.length; i++) {
+        const a = blocks[i].getBoundingClientRect();
+        for (let j = i + 1; j < blocks.length; j++) {
+          if (blocks[i].contains(blocks[j]) || blocks[j].contains(blocks[i])) continue;
+          const b = blocks[j].getBoundingClientRect();
+          if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) diagnostics.push({ code: "LAYOUT_OVERLAP", message: "Block elements overlap on a page." });
+        }
+      }
+      if (!area.textContent?.trim() && !area.querySelector("svg, img, table")) diagnostics.push({ code: "EMPTY_PAGE", message: "A blank page was generated." });
+    }
+    return diagnostics;
+  });
+}
+
+async function withPaginatedPage<T>(result: CompileResult, sourceFile: string, action: (page: Page) => Promise<T>): Promise<T> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
+    await paginate(page, result, sourceFile);
+    return await action(page);
+  } finally {
+    await browser.close();
+  }
 }
 
 export async function inspectLayout(result: CompileResult, sourceFile: string): Promise<LayoutDiagnostic[]> {
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
-    await preparePagedPage(page, result, sourceFile);
-    return await readLayoutDiagnostics(page);
-  } finally {
-    await browser.close();
-  }
+  return withPaginatedPage(result, sourceFile, readLayoutDiagnostics);
 }
 
 export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
-  const layoutDiagnostics = await inspectLayout(result, sourceFile);
-  for (const diagnostic of layoutDiagnostics) result.diagnostics.warning(diagnostic.code, diagnostic.message);
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 1 });
-    await preparePagedPage(page, result, sourceFile);
-    await page.pdf({ path: output, format: "A4", printBackground: true, displayHeaderFooter: false, margin: { top: "0", right: "0", bottom: "0", left: "0" } });
-  } finally {
-    await browser.close();
-  }
+  await withPaginatedPage(result, sourceFile, async (page) => {
+    for (const diagnostic of await readLayoutDiagnostics(page)) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+    await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
+  });
   if (!fs.existsSync(output)) throw new Error("Chromium did not create the PDF output.");
 }

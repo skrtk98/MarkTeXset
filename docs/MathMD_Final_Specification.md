@@ -275,7 +275,7 @@ Heading Attributes は `{#id .class}` を許可する。見出しに自動 ID �
 <references />
 ```
 
-`pagestyle` は `empty`、`plain`、`headings` のみ。未知値は警告して `plain` にフォールバックする。`pagebreak` は先頭・末尾・連続でも実行し、空白ページを警告する。`maketitle`、`maketoc`、`references` は複数指定時に最初だけ有効とし、後続を警告する。
+`pagestyle` は `empty`、`plain`、`headings` のみ。未知値は警告して `plain` にフォールバックする。LaTeX の `\pagestyle` と同様に、マーカーを含むページから次のマーカーまでのページに適用する。マーカーの直後に `pagebreak` が続く場合は、改ページ後のページから適用する。`empty` は柱とページ番号を出さず、`plain` はページ番号だけ、`headings` は柱（直近の h1 / h2 見出し）とページ番号を出す。`pagebreak` は先頭・末尾・連続でも実行し、空白ページを警告する。`maketitle`、`maketoc`、`references` は複数指定時に最初だけ有効とし、後続を警告する。
 
 ## 6. 見出し、目次、Callout
 
@@ -447,7 +447,7 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 ## 11. 脚注
 
-脚注は arabic 番号で各ページ下部に配置する。同一定義の重複はエラー。フェーズ1では Callout 内の脚注定義を禁止する。未定義脚注参照は警告し、`[^missing]` 全体を赤太字で表示し、リンクと番号は生成しない。
+脚注は arabic 番号で、参照したページの下部に配置する。同じ脚注への2回目以降の参照は番号だけを表示する。同一定義の重複はエラー。フェーズ1では Callout 内の脚注定義を禁止する。未定義脚注参照は警告し、`[^missing]` 全体を赤太字で表示し、リンクと番号は生成しない。
 
 ## 12. 診断、フォント、ネットワーク
 
@@ -478,7 +478,7 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 - `marktexset preview`、HTTP 配信、`127.0.0.1:3000` 既定値、`--host` / `--port`
 - WebSocket による複数クライアントへの `status` / `reload` / `diagnostics` 配信
-- Preview でも Playwright + Paged.js による PDF 共通のレイアウト検査を行い、はみ出し・重なり・空白ページの診断を配信する。診断が空の場合はオーバーレイを表示しない。
+- Preview でも Playwright + Vivliostyle による PDF 共通のレイアウト検査を行い、はみ出し・重なり・空白ページの診断を配信する。診断が空の場合はオーバーレイを表示しない。
 - 入力 Markdown と依存ファイルの監視、100ms debounce、ビルドの coalescing
 - 正常表示の保持、初回エラー画面、ブラウザ診断オーバーレイ、自動再接続
 - 依存資産だけの安全な配信、no-store、LAN 公開警告
@@ -496,7 +496,7 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 ### フェーズ2 — PDF とレイアウト品質
 
 - Playwright 管理下 Chromium による `build --format pdf`（既定出力は `.pdf`）
-- Paged.js によるページネーション、ページ番号、ページスタイル、改ページ
+- Vivliostyle によるページネーション、ページ番号、ページスタイル、柱、ページ下部脚注、改ページ。Vivliostyle は CSS Paged Media / GCPM を実装し、英語・日本語の両方の組版を同じ経路で扱う
 - ローカル資産の相対パス解決と画像の埋め込み、MathJax の SVG + 支援 MathML アクセシビリティ
 - コード・表・数式のはみ出し警告、重なり検査、空白ページ警告
 - レイアウト系テスト（ページ数、文字位置、overflow、overlap）

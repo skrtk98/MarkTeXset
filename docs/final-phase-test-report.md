@@ -41,4 +41,4 @@ npm start -- preview examples/final-phase-comprehensive.md --port 35002
 
 ### 既知の環境依存事項
 
-Paged.js 0.4.3は本環境のChromium headlessでchunk処理が完了しないため、既存のフェーズ2仕様に従い5秒で元HTMLへ復元し、ChromiumネイティブA4印刷へフォールバックする。Preview/PDFの出力とraw documentのoverflow/overlap検査は完了しているが、Paged.js固有のchunk境界だけは未保証である。この制約は実装上の未解消事項として記録する。
+PDF組版エンジンはPaged.jsからVivliostyleに移行した。Paged.jsのchunk処理が完了しなかった原因は、読み込み完了後にpolyfillを注入していたことにあった。移行後はフォールバックなしでページ分割し、ページ下部脚注、柱、ページスタイルをVivliostyleが処理する。
