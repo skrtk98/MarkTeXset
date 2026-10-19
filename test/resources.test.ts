@@ -8,7 +8,7 @@ import { fetchRemoteResources, type FetchLike } from "../src/resources.js";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000", "hex");
 const allow = (domains: string[]) => "---\nmathmd:\n  network:\n    allow: true\n    domains: [" + domains.map((domain) => JSON.stringify(domain)).join(", ") + "]\n---\n\n";
-const reply = (status: number, body: Uint8Array | string = "", headers: Record<string, string> = {}) => ({ status, headers: { get: (name: string) => headers[name.toLowerCase()] ?? null }, arrayBuffer: async () => Uint8Array.from(typeof body === "string" ? new TextEncoder().encode(body) : body).buffer as ArrayBuffer });
+const reply = (status: number, body: Uint8Array | string = "", headers: Record<string, string> = {}) => ({ status, headers: { get: (name: string) => headers[name.toLowerCase()] ?? null }, body: new Response(Uint8Array.from(typeof body === "string" ? new TextEncoder().encode(body) : body)).body });
 
 function withCache<T>(action: (directory: string) => Promise<T> | T): Promise<T> {
   const previous = process.env.MARKTEXSET_CACHE_DIR;

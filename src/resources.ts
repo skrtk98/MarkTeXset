@@ -73,16 +73,12 @@ function sniffType(data: Uint8Array): string | undefined {
 }
 
 export interface FetchLike {
-  (url: string, init: { redirect: "manual"; signal: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; body?: ReadableStream<Uint8Array> | null; arrayBuffer(): Promise<ArrayBuffer> }>;
+  (url: string, init: { redirect: "manual"; signal: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null }>;
 }
 
 // Reads at most MAX_BYTES so an endpoint that omits or understates Content-Length cannot exhaust memory.
 async function readLimited(response: Awaited<ReturnType<FetchLike>>): Promise<Uint8Array> {
-  if (!response.body) {
-    const data = new Uint8Array(await response.arrayBuffer());
-    if (data.byteLength > MAX_BYTES) throw new Error("Resource exceeds " + MAX_BYTES + " bytes.");
-    return data;
-  }
+  if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
