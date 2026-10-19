@@ -2,6 +2,7 @@
   "name": "marktexset",
   "version": "0.1.0",
   "description": "Markdown publishing for mathematical documents",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "bin": {
     "marktexset": "dist/src/cli.js"

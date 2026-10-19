@@ -169,6 +169,8 @@ npm run check   # build の後に test を実行する
 
 [baseline/](baseline/) には、Pandoc と LuaLaTeX で文書を組版し、組版品質を比較するための Docker 環境がある。MarkTeXset のビルド経路ではない。
 
-## サードパーティのライセンス
+## ライセンス
 
-PDF のページ分割には AGPL-3.0 の [Vivliostyle](https://vivliostyle.org/) を使う。MarkTeXset を Vivliostyle と一緒に配布する場合は AGPL 互換の条件が必要になる。MarkTeXset で作成した文書や PDF には影響しない。
+MarkTeXset は [GNU Affero General Public License v3.0 以降](LICENSE) で提供する。PDF のページ分割に使う [Vivliostyle](https://vivliostyle.org/) も AGPL-3.0 である。ライセンスが及ぶのは MarkTeXset 自体であり、MarkTeXset で作成した文書や PDF には影響しない。
+
+既定フォントは `marktexset fonts install` で別途取得する。Latin Modern は GUST Font License、原ノ味フォントは SIL Open Font License 1.1 で提供されている。

@@ -169,6 +169,8 @@ npm run check   # build, then test
 
 [baseline/](baseline/) contains a Docker environment that renders documents with Pandoc and LuaLaTeX for comparing typesetting quality. It is not part of the MarkTeXset build.
 
-## Third-party licenses
+## License
 
-PDF pagination uses [Vivliostyle](https://vivliostyle.org/), which is licensed under AGPL-3.0. Distributing MarkTeXset together with Vivliostyle requires AGPL-compatible terms. Documents and PDFs produced with MarkTeXset are not affected.
+MarkTeXset is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). PDF pagination uses [Vivliostyle](https://vivliostyle.org/), which is also licensed under AGPL-3.0. The license covers MarkTeXset itself; documents and PDFs you produce with it are not affected.
+
+The default fonts are downloaded separately by `marktexset fonts install`: Latin Modern under the GUST Font License and Harano Aji under the SIL Open Font License 1.1.
