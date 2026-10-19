@@ -32,7 +32,9 @@ export function hyphenationPoints(words: string[]): Record<string, number[]> {
 const BROWSER_SCRIPT = String.raw`
 (function () {
   var INF = 10000, LINE_PENALTY = 10, HYPHEN_PENALTY = 50, EX_HYPHEN_PENALTY = 50, DOUBLE_HYPHEN_DEMERITS = 10000, FINAL_HYPHEN_DEMERITS = 5000, ADJ_DEMERITS = 10000;
-  var ATOMIC = "svg, img, code, kbd, samp, .math-render, .mathmd-footnote, .mathmd-footnote-repeat, sup, sub, input";
+  var ATOMIC = "svg, img, code, kbd, samp, .math-svg, .mathmd-footnote, .mathmd-footnote-repeat, sup, sub, input";
+  // TeX's \relpenalty and \binoppenalty for breaks between the parts of inline math.
+  var MATH_PENALTY = { "math-glue-rel": 500, "math-glue-bin": 700 };
   var CJK = /[　-ヿ㐀-鿿＀-￯]/;
   // Share of a line-final character's width that hangs into the right margin, after microtype's defaults.
   var PROTRUSION = { ".": 0.7, ",": 0.5, "-": 0.7, "‐": 0.7, "–": 0.3, "—": 0.2, ":": 0.5, ";": 0.5, "!": 0.2, "?": 0.2, "'": 0.7, "’": 0.7, "\"": 0.5, "”": 0.5, ")": 0.05 };
@@ -116,7 +118,8 @@ const BROWSER_SCRIPT = String.raw`
         if (match[1]) {
           var last = items[items.length - 1];
           if (!items.length || last.type === "glue") continue;
-          items.push({ type: "glue", width: space, stretch: space / 2, shrink: space / 3, node: node, start: start, end: start + match[1].length });
+          var mathGlue = node.parentElement.classList.contains("math-glue") ? MATH_PENALTY[node.parentElement.classList[1]] || 0 : 0;
+          items.push({ type: "glue", width: space, stretch: space / 2, shrink: space / 3, node: node, start: start, end: start + match[1].length, penalty: mathGlue });
           continue;
         }
         var chunk = match[2];
@@ -180,7 +183,7 @@ const BROWSER_SCRIPT = String.raw`
           if (ratio < -1 || (item.type === "penalty" && item.penalty === -INF)) { active.splice(a, 1); a--; }
           if (ratio >= -1 && ratio <= tolerance) {
             var badness = 100 * Math.pow(Math.abs(ratio), 3);
-            var penalty = item.type === "penalty" ? item.penalty : 0;
+            var penalty = item.penalty || 0;
             var demerits = penalty >= 0 ? Math.pow(LINE_PENALTY + badness, 2) + penalty * penalty : penalty > -INF ? Math.pow(LINE_PENALTY + badness, 2) - penalty * penalty : Math.pow(LINE_PENALTY + badness, 2);
             var flagged = item.type === "penalty" && item.flagged && item.penalty > -INF;
             if (flagged && node.flagged) demerits += DOUBLE_HYPHEN_DEMERITS;

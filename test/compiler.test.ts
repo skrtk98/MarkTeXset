@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 import WebSocket from "ws";
 import { compile } from "../src/compiler.js";
 import { formatCounter } from "../src/config.js";
+import { inlineMathParts } from "../src/math.js";
 import { Diagnostics } from "../src/diagnostics.js";
 import { loadConfig } from "../src/config.js";
 
@@ -778,4 +779,19 @@ test("prints every counter format that templates accept", () => {
   assert.match(result.html, /<a href="#eq:y">Eq\. ii<\/a> <a href="#fig:f">Fig\. a<\/a> <a href="#tbl:t">Table A<\/a>/);
   const invalid = compile("---\nmathmd:\n  layout:\n    heading:\n      h2: \"{h2.greek}\"\n---\n# A\n");
   assert.ok(invalid.diagnostics.items.some((item) => item.code === "INVALID_COUNTER_TEMPLATE" && item.message.includes("layout.heading.h2")));
+});
+
+test("lets inline math break after top-level relations and binary operators, as TeX does", () => {
+  assert.deepEqual(inlineMathParts("T(au+bv) = aT(u)+bT(v)").map((part) => part.after), ["rel", "bin", undefined]);
+  for (const [tex, parts] of [["-x + y", 2], ["a_{i+1} = b", 2], ["\\sqrt[n+1]{x} = y", 2], ["\\left( a + b \\right) = c", 2], ["\\|A - A_k\\|_2 = \\sigma", 2], ["|x - y| < \\varepsilon", 2], ["\\{ x \\in X : x > 0 \\}", 1], ["a \\over b + c", 1], ["\\color{red} a = b", 1], ["a \\not= b", 1], ["x^{-1}", 1], ["a =^{\\text{def}} b", 1], ["a \\le -b", 2]] as const) {
+    assert.equal(inlineMathParts(tex).length, parts, tex);
+  }
+  const result = compile("Inline $T(au+bv) = aT(u)+bT(v)$ and $x$.\n");
+  assert.equal(result.diagnostics.items.length, 0);
+  const formula = result.html.match(/<p>Inline ([\s\S]*?) and /)?.[1] ?? "";
+  assert.equal((formula.match(/class="math-svg"/g) ?? []).length, 3);
+  assert.match(formula, /<span class="math-glue math-glue-rel"> <\/span>[\s\S]*<span class="math-glue math-glue-bin"> <\/span>/);
+  assert.equal((formula.match(/<mjx-assistive-mml /g) ?? []).length, 1, "one MathML copy of the whole formula");
+  assert.match(formula, /<mjx-assistive-mml[\s\S]*<mo>=<\/mo>[\s\S]*<mo>\+<\/mo>[\s\S]*<\/mjx-assistive-mml>/);
+  assert.ok(compile("Bad $a = \\frac{b$.\n").diagnostics.items.some((item) => item.code === "MATH_RENDER"));
 });
