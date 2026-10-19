@@ -325,7 +325,7 @@ function figureLabel(template: string, value: number): string {
 
 function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
   let index = 0;
-  return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)\s*(?:\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined) => {
+  return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)(?:[ \t]*\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined) => {
     const remote = /^https?:/i.test(src);
     if (!remote && (/^(?:data:|\/\/)/i.test(src) || path.isAbsolute(src) || src.split(/[\\/]/).includes(".."))) {
       diagnostics.error("UNSUPPORTED_IMAGE", "Images must use local paths without parent directory traversal.");

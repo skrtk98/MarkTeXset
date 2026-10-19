@@ -696,3 +696,13 @@ test("comprehensive examples produce exactly their expected diagnostics", () => 
     expected.forEach((item: any, index: number) => { if (item.message) assert.ok(actual[index].message.includes(item.message), input + ": " + item.code); });
   }
 });
+
+test("keeps a code fence that follows an image as a code block", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-image-fence-"));
+  fs.writeFileSync(path.join(directory, "a.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+  const result = compile("![A](a.svg)\n\n```typescript\nconst x = 1;\n```\n\n![B](a.svg) {#fig:b}\n", path.join(directory, "document.md"));
+  assert.equal(result.diagnostics.hasErrors, false);
+  assert.match(result.html, /class="code-block"/);
+  assert.doesNotMatch(result.html, /```/);
+  assert.match(result.html, /<figure id="fig:b"/);
+});
