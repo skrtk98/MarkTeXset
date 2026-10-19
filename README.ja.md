@@ -12,7 +12,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 - **定理環境**：`> [!theorem]` などの Callout。タイトル、カウンター、style（`plain`、`definition`、`remark`、`proof`、カスタムクラス）を設定できる。
 - **文書構造**：番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。
 - **参照と引用**：数式・見出し・Callout の ID は一つの名前空間を共有し、通常の Markdown の fragment link で参照する。ローカルの `.bib` からの `[@key]` 引用に対応する。
-- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。柱、ページ番号、ページ下部の脚注、ページスタイル、改ページを扱い、はみ出し・重なり・空白ページを検査する。
+- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。柱、ページ番号、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
 - **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部の画像と CSS 資産には HTTPS の明示的な許可リストが必要で、内容ハッシュで検証・キャッシュしたうえで出力に埋め込む。
@@ -33,7 +33,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
   marktexset fonts status
   ```
 
-  未取得の場合、PDF と Preview はシステムフォントで組み、`FONT_NOT_INSTALLED` を警告する。HTML 出力はフォントを埋め込まず、閲覧環境に同じフォントがあればそれを使う。
+  `fonts install` は各フォントの CFF アウトラインを TrueType に変換する。Chromium は CFF のフォントを PDF に Type 3 として埋め込むためである。未取得の場合、PDF と Preview はシステムフォントで組み、`FONT_NOT_INSTALLED` を警告する。HTML 出力はフォントを埋め込まず、閲覧環境に同じフォントがあればそれを使う。
 
 ## はじめに
 
@@ -130,6 +130,16 @@ mathmd:
 取得したファイルは SHA-256 でキャッシュし、データ URI として出力に埋め込むので、2 回目以降のビルドはオフラインでも動く。取得し直すには `build` または `preview` に `--reset-cache` を付ける。
 
 ## 組版品質
+
+PDF 出力では英文の段落を TeX と同じ Knuth–Plass 法で行分割する。段落を本文の幅で測り、段落全体の悪さ（badness）が最小になる改行位置を選んでからページ分割する。ハイフネーションは TeX の米国英語パターンを使い、改善になる場合だけ行う。和文、表のセル、脚注はブラウザの行分割（禁則処理を含む）のままにする。すべてブラウザの行分割にするには次のように指定する。
+
+```yaml
+---
+mathmd:
+  layout:
+    line-break: browser   # 既定値: optimal
+---
+```
 
 [examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
 
