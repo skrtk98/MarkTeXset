@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { PDFDocument } from "pdf-lib";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
 import { SERIF_STACK, ensureTrueTypeFonts, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
@@ -108,6 +109,8 @@ pre, table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; 
 pre, .code-block pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
 h1, h2 { string-set: mathmd-section content(text); }
+.document-title-heading { font-size: 1.728em; line-height: 1.25; margin: 0 0 0.6em; }
+.document-title .author, .document-title .date { font-size: 1.2em; }
 .table-of-contents { border: none !important; padding: 0 !important; background: none !important; }
 .toc-list { list-style: none; padding-left: 0; }
 .toc-list li { display: flex; align-items: baseline; }
@@ -125,12 +128,20 @@ h1, h2 { string-set: mathmd-section content(text); }
 .mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-size: 0.7em; vertical-align: super; line-height: 0; }
 .mathmd-footnote::footnote-marker { content: counter(footnote) ". "; }
 </style>`;
-  const prepared = bindPageStyleMarkers(inlineFootnotes(html));
+  // The title is not a section: keep it out of the PDF outline, the tag tree's headings, and the running head.
+  const titled = html.replace(/<h1 class="document-title-heading">([\s\S]*?)<\/h1>/, "<div class=\"document-title-heading\">$1</div>");
+  const prepared = bindPageStyleMarkers(inlineFootnotes(titled));
   return embedLocalImages(prepared.replace("</head>", css + "</head>"), baseDirectory);
 }
 
-function viewerHtml(): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style>
+function escapeText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Chromium takes the PDF's /Lang and document title from the viewer page, not from the paginated document.
+function viewerHtml(config: Record<string, any>): string {
+  const title = config.meta?.title ? "<title>" + escapeText(String(config.meta.title)) + "</title>" : "";
+  return `<!doctype html><html lang="${escapeText(String(config.meta?.language ?? "en"))}"><head><meta charset="utf-8">${title}<style>html,body{margin:0;padding:0}</style>
 <script>var module={exports:{}},exports=module.exports;</script><script src="${ORIGIN}/vivliostyle.js"></script>
 <script>window.vivliostyle=module.exports;</script></head><body><div id="viewport"></div><script>
 window.__mathmd={done:false,error:null};
@@ -149,7 +160,7 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
   // Serve everything from a private origin; nothing reaches the network.
   await page.route("**/*", (route) => {
     const url = route.request().url();
-    if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml() });
+    if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml(result.config) });
     if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
     if (url === ORIGIN + "/measure.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml.replace("</head>", "<style id=\"mathmd-measure\">body { width: " + contentWidth(result.config) + " !important; }</style></head>") });
     if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
@@ -248,11 +259,28 @@ export async function inspectLayout(result: CompileResult, sourceFile: string): 
   return [...fonts, ...await withPaginatedPage(result, sourceFile, readLayoutDiagnostics)];
 }
 
+function authorNames(author: unknown): string[] {
+  const list = Array.isArray(author) ? author : author === undefined || author === null ? [] : [author];
+  return list.map((item) => typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).name ?? "") : "").filter(Boolean);
+}
+
+// Chromium writes the title but not the author; add document metadata without touching the page content.
+async function writeMetadata(output: string, config: Record<string, any>): Promise<void> {
+  const document = await PDFDocument.load(fs.readFileSync(output), { updateMetadata: false });
+  if (config.meta?.title) document.setTitle(String(config.meta.title), { showInWindowTitleBar: true });
+  const authors = authorNames(config.meta?.author);
+  if (authors.length) document.setAuthor(authors.join(", "));
+  document.setLanguage(String(config.meta?.language ?? "en"));
+  document.setCreator("MarkTeXset");
+  fs.writeFileSync(output, await document.save({ useObjectStreams: false }));
+}
+
 export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
   const fonts = fontDiagnostics();
   await withPaginatedPage(result, sourceFile, async (page) => {
     for (const diagnostic of [...fonts, ...await readLayoutDiagnostics(page)]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
-    await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
+    await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false, outline: true, tagged: true });
   });
   if (!fs.existsSync(output)) throw new Error("Chromium did not create the PDF output.");
+  await writeMetadata(output, result.config);
 }

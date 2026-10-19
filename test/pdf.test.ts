@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from "pdf-lib";
 import { renderPdf } from "../src/pdf.js";
 import { missingFontFiles } from "../src/fonts.js";
 import { hyphenationPoints } from "../src/linebreak.js";
@@ -113,4 +114,30 @@ test("finds TeX hyphenation points respecting the minimum fragment lengths", () 
   assert.deepEqual(points.the, []);
   assert.deepEqual(points.x2, []);
   assert.ok(points.eigenvalue.every((offset) => offset >= 2 && "eigenvalue".length - offset >= 3));
+});
+
+test("adds page numbers to the table of contents, an outline, tags, and document metadata", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-toc-"));
+  const output = path.join(directory, "document.pdf");
+  const result = compile("---\nmathmd:\n  meta:\n    title: Spectra\n    language: en\n    author:\n      - name: Ada Lovelace\n      - name: Emmy Noether\n---\n\n<maketitle />\n\n<maketoc />\n\n# One\n\n## Sub one\n\nText.\n\n<pagebreak />\n\n# Two {#two}\n\nText.\n\n<pagebreak />\n\n# Three\n\nEnd.\n");
+  assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  const toc = pageText(output, 1);
+  for (const [entry, page] of [["1. One", 1], ["1.1. Sub one", 1], ["2. Two", 2], ["3. Three", 3]] as const) assert.match(toc, new RegExp(entry.replace(/\./g, "\\.") + "\\s+" + page + "\\n"), entry);
+  const info = execFileSync("pdfinfo", [output], { encoding: "utf8" });
+  assert.match(info, /Title:\s+Spectra/);
+  assert.match(info, /Author:\s+Ada Lovelace, Emmy Noether/);
+  assert.match(info, /Tagged:\s+yes/);
+  const raw = fs.readFileSync(output).toString("latin1");
+  assert.match(raw, /\/Lang \(en\)/);
+  const pdf = await PDFDocument.load(fs.readFileSync(output));
+  const outline: string[] = [];
+  const walk = (node: PDFDict | undefined, depth: number) => {
+    for (let item = node?.lookupMaybe(PDFName.of("First"), PDFDict); item; item = item.lookupMaybe(PDFName.of("Next"), PDFDict)) {
+      outline.push("  ".repeat(depth) + (item.lookup(PDFName.of("Title")) as PDFHexString | PDFString).decodeText());
+      walk(item, depth + 1);
+    }
+  };
+  walk(pdf.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict), 0);
+  assert.deepEqual(outline, ["Contents", "1. One", "  1.1. Sub one", "2. Two", "3. Three"]);
 });
