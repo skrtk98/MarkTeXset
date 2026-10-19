@@ -53,12 +53,13 @@ test("protruding Latin punctuation at the line end is not reported as overfull",
   assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 3, "MarkTeXset output gets no protrusion allowance");
 });
 
-for (const language of ["en", "ja"]) {
-  test(`quality sample (${language}) meets the typesetting criteria`, async () => {
-    const input = path.resolve("examples/quality/prose." + language + ".md");
+for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
+  const language = sample.slice(-2);
+  test(`quality sample (${sample}) meets the typesetting criteria`, async () => {
+    const input = path.resolve("examples/quality/" + sample + ".md");
     const result = compileFile(input);
     assert.deepEqual(result.diagnostics.items.map((item) => item.code), []);
-    const output = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-quality-")), "prose.pdf");
+    const output = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-quality-")), sample + ".pdf");
     await renderPdf(result, output, input);
     const report = analyzePdf(output);
     assert.equal(report.overfullLines, 0);
@@ -66,7 +67,7 @@ for (const language of ["en", "ja"]) {
     assert.ok(report.maxConsecutiveHyphens <= 2, "at most two consecutive hyphenated lines");
     assert.ok(report.bottomWhitespace.max < 0.15, "pages are filled except for the last");
     if (!missingFontFiles().length) {
-      assert.deepEqual(report.fallbackFonts, []);
+      assert.deepEqual(report.fallbackFonts, [], "no text falls back to system fonts, such as unrendered TeX");
       assert.deepEqual(report.unembeddedFonts, []);
       assert.ok(report.fonts.includes("LMRoman10-Regular"));
       if (language === "ja") assert.ok(report.fonts.includes("HaranoAjiMincho-Regular"));
