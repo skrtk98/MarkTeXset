@@ -60,7 +60,7 @@ Footnote[^defined] and an unresolved footnote[^missing].
 
 ## Equations, source maps, and references
 
-Inline $x^2 + \\abs{x} + \\operatorname{rank}(A)$ is inspectable.
+Inline $x^2 + \abs{x} + \operatorname{rank}(A)$ is inspectable.
 
 $$
 a & = b && c & = d \label{eq:quadratic} \\

@@ -9,7 +9,7 @@ import { loadConfig, type Config } from "./config.js";
 import { Diagnostics, locationFor } from "./diagnostics.js";
 import { MONO_STACK, SERIF_STACK } from "./fonts.js";
 import { fetchRemoteResources, resetResourceCache, resolveRemoteResource } from "./resources.js";
-import { isMathJaxCommand, renderMath, renderMultilineMath } from "./math.js";
+import { isMathJaxCommand, renderMath, renderMultilineMath, splitTopLevel } from "./math.js";
 import { renderTikzCd } from "./tikz.js";
 import { parseCodeInfo, renderCodeFence } from "./code.js";
 import { applyScopedMarkers, extractStyleBlocks, loadImportedStyles, renderStyleCss, type ExtractedStyles } from "./styles.js";
@@ -273,7 +273,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
       const sourceRange = mathSourceOffset(context, source, offset, match);
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
       const rows = renderMultilineMath(body);
-      const maxCells = Math.max(1, ...rows.map((row) => (row.source ?? "").includes("&") ? (row.source ?? "").split("&").length : 1));
+      const maxCells = Math.max(1, ...rows.map((row) => splitTopLevel(row.source ?? "", "&").length));
       const rendered = rows.map((row, rowIndex) => {
         const label = row.labels[0];
         const notag = /\\notag\b/.test(row.source ?? "");
@@ -289,17 +289,17 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         const rowSource = row.source ?? "";
         const rowId = context.mathInspector ? "row-" + rowIndex : undefined;
         const rowAttributes = inspectorAttributes(context, "multiline", rowSource, sourceRange.start, sourceRange.end, rowId);
-        let mathHtml = renderMath(resolveTexReferences(expandMacros(rowSource, config)), true).html;
-        if (rowSource.includes("&")) {
-          const cells = rowSource.split("&");
+        const cells = splitTopLevel(rowSource, "&");
+        let mathHtml = cells.length > 1 ? "" : renderMath(resolveTexReferences(expandMacros(rowSource, config)), true).html;
+        if (cells.length > 1) {
           mathHtml = cells.map((cell, index) => {
             const style = "grid-column:" + (index + 2) + ";grid-row:" + (rowIndex + 1) + ";";
             if (!cell.trim()) return "<span class=\"equation-content math-anchor-gap\" style=\"" + style + "\"></span>";
       try { return "<span class=\"equation-content math-anchor-" + (index % 2 ? "left" : "right") + "\" style=\"" + style + "\">" + renderMath(resolveTexReferences(expandMacros(cell, config)), true).html + "</span>"; }
-            catch { return "<span class=\"math-error\">[math error]</span>"; }
+            catch (error) { diagnostics.error("MATH_RENDER", error instanceof Error ? error.message : String(error)); return "<span class=\"math-error\">[math error]</span>"; }
           }).join("");
         }
-        if (!rowSource.includes("&")) mathHtml = "<span class=\"equation-content math-anchor-center\" style=\"grid-column:2;grid-row:" + (rowIndex + 1) + ";\">" + mathHtml + "</span>";
+        if (cells.length === 1) mathHtml = "<span class=\"equation-content math-anchor-center\" style=\"grid-column:2;grid-row:" + (rowIndex + 1) + ";\">" + mathHtml + "</span>";
         return "<div class=\"equation-row\"" + (label ? " id=\"" + escapeHtml(label) + "\"" : "") + rowAttributes + ">" + mathHtml + number + "</div>";
       }).join("");
       return put("<div class=\"math-block\"" + inspectorAttributes(context, "display", body, sourceRange.start, sourceRange.end) + " style=\"grid-template-columns:1fr repeat(" + maxCells + ",max-content) 1fr max-content;\">" + rendered + "</div>");

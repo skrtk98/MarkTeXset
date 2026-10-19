@@ -43,12 +43,46 @@ export interface RenderedMath {
   source?: string;
 }
 
+function decodeAttribute(value: string): string {
+  return value.replace(/&quot;/g, "\"").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+/** Renders TeX to SVG. TeX errors, which MathJax would draw as text, are thrown instead. */
 export function renderMath(source: string, display: boolean): RenderedMath {
   const stripped = stripLabels(source);
   const node = document.convert(stripped.tex, { display });
-  return { html: "<span class=\"math-render\"><span class=\"math-svg\">" + adaptor.outerHTML(node) + "</span></span>", labels: stripped.labels, source };
+  const html = adaptor.outerHTML(node);
+  const error = html.match(/data-mjx-error="([^"]*)"/);
+  if (error) throw new Error("TeX error in '" + source.trim() + "': " + decodeAttribute(error[1]));
+  return { html: "<span class=\"math-render\"><span class=\"math-svg\">" + html + "</span></span>", labels: stripped.labels, source };
 }
 
+/** Splits at `\\` or `&` outside braces and \begin...\end environments, so `aligned`, `cases`, and matrices stay whole. */
+export function splitTopLevel(source: string, separator: "\\\\" | "&"): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (char === "\\") {
+      if (source[i + 1] === "\\") {
+        if (separator === "\\\\" && depth === 0) { parts.push(source.slice(start, i)); start = i + 2; }
+        i++;
+        continue;
+      }
+      const name = source.slice(i + 1).match(/^[A-Za-z]+/)?.[0];
+      if (name === "begin") depth++;
+      else if (name === "end") depth--;
+      i += name ? name.length : 1;
+    } else if (char === "{") depth++;
+    else if (char === "}") depth--;
+    else if (char === "&" && separator === "&" && depth === 0) { parts.push(source.slice(start, i)); start = i + 1; }
+  }
+  parts.push(source.slice(start));
+  return parts;
+}
+
+/** Splits display math into rows at top-level `\\`, collecting each row's labels; rows are rendered by the caller. */
 export function renderMultilineMath(source: string): RenderedMath[] {
-  return source.split(/\\\\/g).map((row) => row.trim()).filter(Boolean).map((row) => renderMath(row, true));
+  return splitTopLevel(source, "\\\\").map((row) => row.trim()).filter(Boolean).map((row) => ({ html: "", labels: stripLabels(row).labels, source: row }));
 }
