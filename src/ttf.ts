@@ -13,7 +13,6 @@ const TOLERANCE = 1; // font units
 const DROPPED_TABLES = new Set(["CFF ", "CFF2", "VORG", "glyf", "loca", "maxp"]);
 
 const mid = (a: Vec, b: Vec): Vec => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-const lerp = (a: Vec, b: Vec, t: number): Vec => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 
 function cubicAt(p0: Vec, p1: Vec, p2: Vec, p3: Vec, t: number): Vec {
   const u = 1 - t;
