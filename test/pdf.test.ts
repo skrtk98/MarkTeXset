@@ -6,6 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { compile } from "../src/compiler.js";
 import { renderPdf } from "../src/pdf.js";
+import { missingFontFiles } from "../src/fonts.js";
+import { hyphenationPoints } from "../src/linebreak.js";
+import { parseBboxLayout } from "../src/quality.js";
 
 test("renders phase-two PDF output with MathML and page breaks", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-pdf-"));
@@ -77,4 +80,37 @@ test("splits long paragraphs across pages instead of pushing them to the next pa
   const css = result.html.match(/<style>[\s\S]*?<\/style>/)?.[0] ?? "";
   assert.match(css, /hyphens:auto/);
   assert.match(css, /:lang\(ja\)\{line-break:strict/);
+});
+
+test("breaks English paragraphs with flush right edges and keeps every word", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-linebreak-"));
+  const output = path.join(directory, "document.pdf");
+  const paragraph = "Linear algebra studies vector spaces together with the maps that preserve their structure, and the kernel $\\ker T$ of a map consists of the vectors that $T$ sends to zero. *Characteristically*, the eigenvalues of a self-adjoint operator are real, which is the starting point of the spectral theorem and of the decomposition of a symmetric matrix.[^n] Uncharacteristically long words such as incomprehensibilities test hyphenation.";
+  const result = compile("---\nmathmd:\n  meta:\n    language: en\n---\n\n" + paragraph + "\n\n" + paragraph + "\n\n[^n]: A note that must still wrap normally inside the footnote area even though it is long enough to need more than one line of text.\n");
+  assert.equal(result.diagnostics.hasErrors, false);
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  const xml = execFileSync("pdftotext", ["-bbox-layout", output, "-"], { encoding: "utf8" });
+  const lines = parseBboxLayout(xml)[0].lines.filter((line) => line.yMax < 700);
+  const right = Math.max(...lines.map((line) => line.xMax));
+  const paragraphLines = lines.filter((line) => line.xMax - line.xMin > 300);
+  assert.ok(paragraphLines.length >= 8);
+  // All lines except each paragraph's last end at the same right edge.
+  assert.ok(paragraphLines.filter((line) => right - line.xMax <= 0.5).length >= paragraphLines.length - 3, JSON.stringify(paragraphLines.map((line) => line.xMax)));
+  const words = (text: string) => text.replace(/[‐-]\n/g, "").replace(/\s+/g, " ");
+  const text = words(execFileSync("pdftotext", [output, "-"], { encoding: "utf8" }));
+  for (const word of ["Characteristically", "incomprehensibilities", "decomposition", "hyphenation."]) assert.ok(text.includes(word), word);
+  assert.match(text, /A note that must still wrap normally/);
+});
+
+test("accepts the browser line-break mode and rejects unknown modes", () => {
+  assert.equal(compile("---\nmathmd:\n  layout:\n    line-break: browser\n---\n\nText.\n").diagnostics.hasErrors, false);
+  assert.ok(compile("---\nmathmd:\n  layout:\n    line-break: greedy\n---\n\nText.\n").diagnostics.items.some((item) => item.code === "UNSUPPORTED_LINE_BREAK"));
+});
+
+test("finds TeX hyphenation points respecting the minimum fragment lengths", () => {
+  const points = hyphenationPoints(["decomposition", "the", "eigenvalue", "x2"]);
+  assert.deepEqual(points.decomposition.map((offset) => "decomposition".slice(0, offset)), ["de", "decom", "decompo", "decomposi"]);
+  assert.deepEqual(points.the, []);
+  assert.deepEqual(points.x2, []);
+  assert.ok(points.eigenvalue.every((offset) => offset >= 2 && "eigenvalue".length - offset >= 3));
 });

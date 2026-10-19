@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@vivliostyle/core": "^2.45.2",
+    "hyphen": "^1.14.1",
     "markdown-it": "^14.1.0",
     "markdown-it-deflist": "^3.0.1",
     "markdown-it-footnote": "^4.0.0",

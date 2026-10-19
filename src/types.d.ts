@@ -20,3 +20,7 @@ declare module "opentype.js" {
   const opentype: { parse(buffer: ArrayBuffer, options?: { lowMemory?: boolean }): Font };
   export default opentype;
 }
+
+declare module "hyphen/en-us/index.js" {
+  export function hyphenateSync(text: string, options?: { hyphenChar?: string; minWordLength?: number }): string;
+}

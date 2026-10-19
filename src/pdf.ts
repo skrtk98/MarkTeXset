@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
 import { SERIF_STACK, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
+import { breakParagraphs } from "./linebreak.js";
 
 const require = createRequire(import.meta.url);
 
@@ -46,6 +47,14 @@ const ORIGIN = "http://marktexset.invalid";
 
 function pageSize(value: unknown): string {
   return typeof value === "string" && PAGE_SIZES.has(value) ? value : "A4";
+}
+
+const PAGE_WIDTHS: Record<string, string> = { A3: "297mm", A4: "210mm", A5: "148mm", B4: "250mm", B5: "176mm", "JIS-B4": "257mm", "JIS-B5": "182mm", letter: "8.5in", legal: "8.5in", ledger: "11in" };
+
+function contentWidth(config: Record<string, any>): string {
+  const margins = pageMargins(config.layout?.margins).split(" ");
+  const [right, left] = margins.length === 4 ? [margins[1], margins[3]] : [margins[0], margins[0]];
+  return "calc(" + PAGE_WIDTHS[pageSize(config.layout?.size)] + " - " + left + " - " + right + ")";
 }
 
 // Vivliostyle floats `.mathmd-footnote` spans to the page bottom, so each first
@@ -102,6 +111,7 @@ h1, h2 { string-set: mathmd-section content(text); }
 .mathmd-pagebreak { break-before: page; height: 0; }
 .mathmd-footnote { float: footnote; font-size: 0.8em; line-height: 1.4; text-align: justify; }
 .mathmd-footnote-paragraph + .mathmd-footnote-paragraph { display: block; }
+.mathmd-line .mathmd-footnote { white-space: normal; text-align-last: auto; text-indent: 0; word-spacing: normal; }
 .mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-size: 0.7em; vertical-align: super; line-height: 0; }
 .mathmd-footnote::footnote-marker { content: counter(footnote) ". "; }
 </style>`;
@@ -124,18 +134,26 @@ viewer.loadDocument({url:"${ORIGIN}/document.html"},{},{});
 export interface LayoutDiagnostic { code: string; message: string; }
 
 async function paginate(page: Page, result: CompileResult, sourceFile: string): Promise<void> {
-  const documentHtml = pdfHtml(result.html, result.config, path.dirname(sourceFile));
+  let documentHtml = pdfHtml(result.html, result.config, path.dirname(sourceFile));
   const vivliostyle = fs.readFileSync(require.resolve("@vivliostyle/core"), "utf8");
   // Serve everything from a private origin; nothing reaches the network.
   await page.route("**/*", (route) => {
     const url = route.request().url();
     if (url === ORIGIN + "/viewer.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: viewerHtml() });
     if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
+    if (url === ORIGIN + "/measure.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml.replace("</head>", "<style id=\"mathmd-measure\">body { width: " + contentWidth(result.config) + " !important; }</style></head>") });
     if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
     const fontPath = url.startsWith(ORIGIN + "/fonts/") ? resolveFontRequest(decodeURIComponent(url.slice((ORIGIN + "/fonts/").length))) : undefined;
     if (fontPath) return route.fulfill({ status: 200, contentType: fontPath.endsWith(".ttf") ? "font/ttf" : "font/otf", body: fs.readFileSync(fontPath) });
     return route.abort();
   });
+  if ((result.config.layout?.["line-break"] ?? "optimal") === "optimal") {
+    // Choose line breaks on a single-column copy of the document at the page's text width, then paginate the result.
+    await page.goto(ORIGIN + "/measure.html");
+    await page.evaluate(() => document.fonts.ready);
+    await breakParagraphs(page);
+    documentHtml = "<!doctype html>\n" + await page.evaluate(() => { document.getElementById("mathmd-measure")?.remove(); return document.documentElement.outerHTML; });
+  }
   await page.goto(ORIGIN + "/viewer.html");
   await page.waitForFunction(() => (window as any).__mathmd.done || (window as any).__mathmd.error, undefined, { timeout: 120_000 });
   const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
