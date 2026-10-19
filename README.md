@@ -99,7 +99,7 @@ The server listens on `http://127.0.0.1:3000/`. It does not open a browser for y
 - When you save the Markdown file or any of its dependencies (imports, bibliographies, images, CSS), Preview rebuilds the document and updates connected browsers over WebSocket.
 - Each build runs the same Paged.js layout check as PDF output and shows any overflow, overlap, or blank-page problems in an overlay. Preview never writes a PDF.
 - When a build fails, the server keeps running and keeps showing the last good preview together with the diagnostics.
-- Preview serves only the generated page and the local assets the document references inside its own directory. Symbolic links that point outside that directory are not served, and WebSocket connections from other origins are rejected.
+- Preview serves only the generated page and the local assets the document references inside its own directory. Symbolic links that point outside that directory are not served, WebSocket connections from other origins are rejected, and requests are refused unless their `Host` header is an IP address, `localhost`, or the `--host` value, which blocks DNS rebinding.
 - Pass `--host` to listen on another address. For any non-loopback address, Preview prints a warning, because any device that can reach that address can read the document.
 
 The **math inspector** (enabled by default in Preview) shows the source position, original TeX, rendered DOM, and computed styles for any formula you select. It works only in Preview and adds nothing to HTML or PDF builds.
