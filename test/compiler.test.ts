@@ -38,7 +38,7 @@ test("emits Preview-only math inspector metadata for inline, block, multiline, a
   assert.match(preview.html, /data-mathmd-tex="x\^2"/);
   assert.match(preview.html, /data-mathmd-source-start="\{&quot;line&quot;:3/);
   assert.match(preview.html, /data-mathmd-row-id="row-0"/);
-  assert.match(preview.html, /data-mathmd-source-file="\.\.\/\.\.\/\.\.\/\.\.\/tmp\/math-inspector\.md"/);
+  assert.ok(preview.html.includes('data-mathmd-source-file="' + path.relative(process.cwd(), "/tmp/math-inspector.md").split(path.sep).join("/") + '"'));
 });
 
 test("validates math inspector configuration and supports disabling it", () => {
