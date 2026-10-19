@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { compileFile, type CompileResult } from "./compiler.js";
@@ -129,7 +130,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   let watchedKey = "";
   let allowedAssets = new Set<string>();
   const assetRoot = fs.realpathSync(path.dirname(input));
-  const insideRoot = (file: string) => { const relative = path.relative(assetRoot, file); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+  const insideRoot = (file: string) => { const relative = path.relative(assetRoot, file); return relative !== "" && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative); };
   let buildFailure: Diagnostics | undefined;
   const diagnosticsNow = () => (buildFailure ?? current.diagnostics);
   const clients = new Set<WebSocket>();
@@ -182,7 +183,18 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   let retry: NodeJS.Timeout | undefined;
   const schedule = () => { if (timer) clearTimeout(timer); if (retry) clearTimeout(retry); timer = setTimeout(() => { void build(); }, 100); };
   refreshWatchers();
+  // Accept only Host values that cannot be DNS-rebound: IP literals, localhost, or the configured hostname.
+  const trustedHost = (request: http.IncomingMessage) => {
+    const header = request.headers.host;
+    if (header === undefined) return false;
+    let parsed: URL;
+    try { parsed = new URL("http://" + header); } catch { return false; }
+    if (parsed.username || parsed.password || parsed.pathname !== "/" || Number(parsed.port || 80) !== options.port) return false;
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return net.isIP(hostname) !== 0 || hostname === "localhost" || hostname === options.host.toLowerCase();
+  };
   const handle = (request: http.IncomingMessage, response: http.ServerResponse) => {
+    if (!trustedHost(request)) { response.writeHead(403); response.end("Forbidden"); return; }
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname.startsWith("/__marktexset/inspector/") || url.pathname === "/__marktexset/source") {
       if (request.method !== "GET") { response.setHeader("Allow", "GET"); inspectorResponse(response, 405, { error: "method-not-allowed" }); return; }
@@ -228,6 +240,7 @@ export async function startPreview(options: PreviewOptions): Promise<void> {
   // Browsers always send Origin on WebSocket upgrades; reject pages from other origins.
   const sameOrigin = (request: http.IncomingMessage) => {
     const origin = request.headers.origin;
+    if (!trustedHost(request)) return false;
     if (origin === undefined) return true;
     try { const parsed = new URL(origin); return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host === request.headers.host; } catch { return false; }
   };

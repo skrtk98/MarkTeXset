@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -595,10 +596,11 @@ test("preview escapes diagnostics, confines assets, validates WebSocket origins,
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-preview-outside-"));
   fs.writeFileSync(path.join(outside, "secret.png"), "secret");
   fs.writeFileSync(path.join(directory, "inside.png"), "inside");
+  fs.writeFileSync(path.join(directory, "..dotted.png"), "dotted");
   fs.symlinkSync(path.join(outside, "secret.png"), path.join(directory, "leak.png"));
   const input = path.join(directory, "document.md");
   const payload = "<img src=x onerror=window.__pwned=1></script><script>window.__pwned=2</script>";
-  fs.writeFileSync(input, "---\nmathmd:\n  \"" + payload + "\": 1\n---\n\n![a](inside.png)\n\n![b](leak.png)\n");
+  fs.writeFileSync(input, "---\nmathmd:\n  \"" + payload + "\": 1\n---\n\n![a](inside.png)\n\n![b](leak.png)\n\n![c](..dotted.png)\n");
   const port = 34676;
   const child = spawn(process.execPath, ["--import", "tsx", path.resolve("src/cli.ts"), "preview", input, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
   let exited = false;
@@ -618,14 +620,20 @@ test("preview escapes diagnostics, confines assets, validates WebSocket origins,
     assert.equal(await page.locator("#marktexset-diagnostics").getByText("onerror=window.__pwned=1", { exact: false }).count(), 1);
     assert.equal((await fetch(base + "/inside.png")).status, 200);
     assert.equal((await fetch(base + "/leak.png")).status, 404);
+    assert.equal((await fetch(base + "/..dotted.png")).status, 200);
+    const rebound = await new Promise<number>((resolve, reject) => {
+      http.get({ host: "127.0.0.1", port, path: "/", headers: { host: "evil.example:" + port } }, (response) => { response.resume(); resolve(response.statusCode ?? 0); }).on("error", reject);
+    });
+    assert.equal(rebound, 403);
     assert.equal((await fetch(base + "/__marktexset/inspector/%")).status, 400);
     assert.equal((await fetch(base + "/%")).status, 400);
-    const opens = (origin?: string) => new Promise<boolean>((resolve) => {
-      const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws", origin ? { origin } : {});
+    const opens = (origin?: string, host?: string) => new Promise<boolean>((resolve) => {
+      const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws", { ...(origin ? { origin } : {}), ...(host ? { headers: { host } } : {}) });
       socket.on("open", () => { socket.close(); resolve(true); });
       socket.on("error", () => resolve(false));
     });
     assert.equal(await opens("http://evil.example"), false);
+    assert.equal(await opens("http://evil.example:" + port, "evil.example:" + port), false);
     assert.equal(await opens("http://127.0.0.1:" + port), true);
     const recovered = new Promise<void>((resolve, reject) => {
       const socket = new WebSocket("ws://127.0.0.1:" + port + "/__marktexset/ws");
