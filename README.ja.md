@@ -141,7 +141,7 @@ mathmd:
 ---
 ```
 
-[examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
+[examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。散文のサンプルと、図・表・行列・リスト・コード・脚注を含むサンプルを英日それぞれに用意している。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
 
 ```bash
 docker build -t marktexset-baseline baseline

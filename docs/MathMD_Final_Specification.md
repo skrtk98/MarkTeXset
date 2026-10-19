@@ -253,8 +253,18 @@ mathmd:
     equation:
       numbered: false
       display: "({equation.arabic})"
-      reference: "式 ({equation.arabic})"
+      reference: "({equation.arabic})"
+    figure:
+      numbered: true
+      display: "Figure {figure.arabic}."
+      reference: "Figure {figure.arabic}"
+    table:
+      numbered: true
+      display: "Table {table.arabic}."
+      reference: "Table {table.arabic}"
 ```
+
+`meta.language: ja` の文書では、明示されていない生成文字列の既定値を ltjsarticle に揃える。目次見出しは「目次」、文献見出しは「参考文献」、図は `図 {figure.arabic}`、表は `表 {table.arabic}`、式の参照は `式 ({equation.arabic})` とする。設定で明示した値はこの既定値より優先する。
 
 フェーズ1は `language: en|ja`、`class: article`、`size: A4` のみ許可する。日付の既定値は指定タイムゾーンのシステム時刻、既定タイムゾーンは UTC。余白は mm、cm、in、pt の非負値で、上下左右を個別指定する map も許可する。ゼロは許可する。
 
@@ -315,7 +325,7 @@ Callout の `title` は YAML の文字列を CommonMark のインライン構文
 番号を自動表示する場合は[](#eq:quadratic)。
 ```
 
-明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
+明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。式・図・表は `layout.equation.reference`、`layout.figure.reference`、`layout.table.reference` の書式で、見出しは見出しの文字列で生成する。数式内の `\eqref` と `\ref` は LaTeX と同じく番号だけ（`(1)` と `1`）を表示する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
 
 引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。numeric の参考文献一覧は標準箇条書きマーカーを使わず、`[1] Title`、`[2] Title` のラベルとハンギングインデントで表示する。既定は `References` / level 2。
 
@@ -325,7 +335,7 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 
 `equation.numbered: true` は全行を番号付けし、`\notag` 行は番号もインクリメントも行わない。`false` は `\label` のある行だけ番号付けする。`\notag` と `\label` の同一行はエラー。行列内の `&` / `\\` は行列用として解釈する。
 
-許可する行列系は `cases`、`matrix`、`pmatrix`、`bmatrix`、`Bmatrix`、`vmatrix`、`Vmatrix`、`smallmatrix`。`aligned`、`alignedat`、`align`、`align*`、`gather`、`gather*` は採用しない。
+許可する行列系は `cases`、`matrix`、`pmatrix`、`bmatrix`、`Bmatrix`、`vmatrix`、`Vmatrix`、`smallmatrix`。`aligned`、`alignedat`、`align`、`align*`、`gather`、`gather*` は採用せず、使うと `UNSUPPORTED_MATH_ENVIRONMENT` エラーとする。行と `&` の分割は環境と波括弧の外側でのみ行い、許可した行列系の中の `&` / `\\` は分割しない。MathJax が TeX の誤り（閉じ括弧の不足など）を検出した数式は、`MATH_RENDER` エラーとして報告する。
 
 フェーズ1の TeX subset は `\text`、`\operatorname`、`\frac`、`\sqrt`、主要大型演算子、`\mathbb`、`\mathcal`、`\mathrm` 等。`\text{...}` は Unicode、平文、`% # $ & _ { }` のエスケープだけ許可する。
 
@@ -336,6 +346,8 @@ MathJax の SVG と MathML を出力する。インラインは `$...$`、ブロ
 ### 9.1 表構造
 
 フェーズ1では GFM 互換テーブルを扱い、最終フェーズでは `markdown-it-multimd-table` の標準記法を採用して `rowspan` / `colspan` によるセル結合を許可する。MathMD 独自のセル結合記法は追加しない。結合範囲、列数、行数が不正な場合はコンパイルエラーとする。
+
+表は空行で終わる。Pandoc と同じく、表の直前または直後の段落を `: 見出し` または `Table: 見出し` と書くと表の見出し（`caption`）になり、見出しのある表だけに `layout.table.display` の書式で番号を付ける。見出しの末尾の `{#tbl:id}` は表の ID となり、参照できる。
 
 生成表には `.mathmd-table` を付与し、`table`、`thead`、`tbody`、`tr`、`th`、`td` とともに安定した公開HTML APIとする。セルに `data-row` / `data-col` は付与しない。セル単位の指定は標準CSSの `nth-child()` など、結合後の実DOM上のセル順を対象にする。結合セルの論理座標を自動補正しない。
 
@@ -460,7 +472,9 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 PDF の英文段落（`lang` が `en` で始まり、和文を含まない段落）は、`layout.line-break: optimal`（既定）のとき Knuth–Plass 法で行分割する。ページ分割の前に本文幅の 1 段組で文書を組み、語の幅を実測して、行の伸縮率から求めた badness、行ペナルティ 10、ハイフンペナルティ 50、連続ハイフン 10000、最終行直前のハイフン 5000、隣接する行の密度差 10000 の各デメリットの総和が最小になる改行位置を選ぶ（TeX の `\tolerance` に相当する許容伸縮率は 1、見つからなければ 2、10 の順に緩め、ハイフネーションは 2 回目以降だけ許す）。ハイフネーション候補は TeX の米国英語パターンから、語頭 2 字・語末 3 字以上を残す位置に限る。選んだ各行は個別のブロックとして両端揃えにし、4 行以上の段落は最初と最後の行の前後で改ページしない。数式・インラインコード・脚注参照は分割しない。和文、表のセル、図、脚注本文は対象外で、ブラウザの行分割に従う。`layout.line-break: browser` はこの処理を行わない。その他の値は `UNSUPPORTED_LINE_BREAK` エラーとする。Preview と HTML 出力はブラウザの行分割に従う。
 
-PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。`article` と同様に第 1 レベルの項目は太字でリーダーを付けない。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
+PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。`article` と同様に第 1 レベルの項目は太字でリーダーを付けない。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。
+
+PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置し、入らなければ次ページの上端へ送る（CSS page float の `float: top`）。表は Pandoc の LaTeX 出力と同じく booktabs 型の罫線（上下の太罫と見出し行の下罫）で組み、見出しは表の上に置く。罫線は詳細度 0 で指定するため、利用者の表スタイルが優先する。コードブロックと Callout はページをまたいで分割してよく、前後に 3 行以上を残す。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
 外部リソースとして扱うのは、Markdown の画像 `![](https://...)` と、`mathmd.style.import` で読み込む CSS 内の `url(https://...)` である。規則は次のとおり。
 
@@ -597,14 +611,14 @@ PDF の目次は各項目に点線のリーダーとページ番号を付ける�
 
 ### 組版品質の評価
 
-組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプル（`examples/quality/prose.en.md`、`examples/quality/prose.ja.md`）で測る。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
+組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプルで測る。散文のサンプル（`examples/quality/prose.en.md`、`prose.ja.md`）と、図・表・行列を含む別行立て数式・番号付きリスト・コード・脚注を含むサンプル（`structure.en.md`、`structure.ja.md`）を英日それぞれに用意する。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。SVG の数式は文字をもたず行が分断されるため、高さの大半が重なる断片を 1 行にまとめてから数える。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
 
 | 指標 | 合格基準（MarkTeXset） |
 |---|---|
 | はみ出し行（本文の右端を 1.5pt 超える行。行末で二分に詰めた和文約物は除く。baseline では microtype が余白へ突き出す欧文の句読点・ハイフンも除く） | 0 |
 | 禁則違反（行頭禁則文字で始まる行、行末禁則文字で終わる行） | 0 |
 | 連続するハイフン付き行末 | 2 行以下 |
-| 最終ページ以外のページ下部の空白率 | 15% 未満 |
+| 最終ページ以外のページ下部の空白率（脚注がある場合は脚注の上の空き。罫線と前後のアキ 1.5 行分は除く） | 15% 未満 |
 | 代替フォント・非埋め込みフォント | なし（既定フォント導入時） |
 
 合格基準は `npm test` で検査する。`npm run quality -- --baseline` は同じサンプルを baseline の Docker 環境でも組版し、ページ数、行数、空白率、ハイフン、禁則、フォントを並べたレポートを `quality-report/` に出力する。baseline との比較は参考値であり、合否判定には使わない。CI は master への push ごとにこのレポートを作成する。

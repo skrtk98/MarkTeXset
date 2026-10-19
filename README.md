@@ -141,7 +141,7 @@ mathmd:
 ---
 ```
 
-The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. `npm test` checks that their PDFs have no overfull lines and no Japanese line-breaking (kinsoku) violations, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
+The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. There are prose samples and samples with figures, tables, matrices, lists, code, and footnotes, in English and Japanese. `npm test` checks that their PDFs have no overfull lines and no Japanese line-breaking (kinsoku) violations, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
 
 ```bash
 docker build -t marktexset-baseline baseline
