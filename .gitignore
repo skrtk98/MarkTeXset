@@ -5,3 +5,6 @@ AGENTS.md
 
 # Locally rendered verification artifacts
 examples/*.pdf
+
+# Typesetting quality reports
+quality-report/

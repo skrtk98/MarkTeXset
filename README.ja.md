@@ -129,6 +129,15 @@ mathmd:
 
 取得したファイルは SHA-256 でキャッシュし、データ URI として出力に埋め込むので、2 回目以降のビルドはオフラインでも動く。取得し直すには `build` または `preview` に `--reset-cache` を付ける。
 
+## 組版品質
+
+[examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
+
+```bash
+docker build -t marktexset-baseline baseline
+npm run quality -- --baseline   # quality-report/report.md に出力する
+```
+
 ## ドキュメント
 
 - 現行仕様は [docs/MathMD_Final_Specification.md](docs/MathMD_Final_Specification.md) に集約している。過去の設計案とレビュー記録は [docs/old/](docs/old/) に保管しており、参考用である。

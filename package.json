@@ -10,7 +10,8 @@
     "build": "tsc",
     "start": "tsx src/cli.ts",
     "test": "node --import tsx --test test/*.test.ts",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "quality": "tsx scripts/quality.ts"
   },
   "dependencies": {
     "@vivliostyle/core": "^2.45.2",

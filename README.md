@@ -129,6 +129,15 @@ mathmd:
 
 Fetched files are cached by SHA-256 and embedded in the output as data URIs, so later builds work offline. Pass `--reset-cache` to `build` or `preview` to fetch them again.
 
+## Typesetting quality
+
+The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. `npm test` checks that their PDFs have no overfull lines and no Japanese line-breaking (kinsoku) violations, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
+
+```bash
+docker build -t marktexset-baseline baseline
+npm run quality -- --baseline   # writes quality-report/report.md
+```
+
 ## Documentation
 
 - [docs/MathMD_Final_Specification.md](docs/MathMD_Final_Specification.md) is the current specification (in Japanese). Earlier design drafts and review notes are kept in [docs/old/](docs/old/) for reference only.

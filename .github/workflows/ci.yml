@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium and Poppler
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Cache default fonts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/marktexset/fonts
+          key: fonts-${{ hashFiles('src/fonts.ts') }}
+      - run: npx tsx src/cli.ts fonts install
+      - run: npm run check
+
+  quality:
+    # Compares the quality samples with the Pandoc + LuaLaTeX baseline; the report is informational.
+    if: github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium and Poppler
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: npx tsx src/cli.ts fonts install
+      - run: docker build -t marktexset-baseline baseline
+      - run: npm run quality -- --baseline
+      - run: cat quality-report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: quality-report/
