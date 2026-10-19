@@ -19,9 +19,22 @@ test("installs fonts only when the pinned checksum matches", async () => {
   await installFonts({ directory, files: [good], fetcher: response("good") });
   assert.equal(fs.readFileSync(path.join(directory, "good.otf"), "utf8"), "good");
   const bad = { ...good, file: "bad.otf" };
-  await assert.rejects(installFonts({ directory, files: [bad], fetcher: response("tampered") }), /Checksum mismatch for bad\.otf/);
-  await assert.rejects(installFonts({ directory, files: [{ ...good, file: "missing.otf" }], fetcher: response("", 404) }), /HTTP 404/);
+  await assert.rejects(installFonts({ directory, files: [bad], fetcher: response("tampered"), retryDelays: [] }), /Checksum mismatch for bad\.otf/);
+  await assert.rejects(installFonts({ directory, files: [{ ...good, file: "missing.otf" }], fetcher: response("", 404), retryDelays: [] }), /HTTP 404/);
   assert.deepEqual(fs.readdirSync(directory), ["good.otf"]);
+});
+
+test("retries font downloads that fail transiently", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-fonts-retry-"));
+  const font = { file: "flaky.otf", url: "https://example.invalid/flaky.otf", sha256: crypto.createHash("sha256").update("good").digest("hex") };
+  let calls = 0;
+  const fetcher = async () => { calls++; if (calls === 1) throw new TypeError("fetch failed"); return response(calls === 2 ? "stale" : "good")(); };
+  const log: string[] = [];
+  await installFonts({ directory, files: [font], fetcher, retryDelays: [0, 0], log: (message) => log.push(message) });
+  assert.equal(calls, 3);
+  assert.equal(fs.readFileSync(path.join(directory, "flaky.otf"), "utf8"), "good");
+  assert.equal(log.filter((message) => message.startsWith("Retrying flaky.otf")).length, 2);
+  await assert.rejects(installFonts({ directory, files: [{ ...font, file: "down.otf" }], fetcher: async () => { throw new TypeError("fetch failed"); }, retryDelays: [0] }), /fetch failed: https:\/\/example\.invalid\/flaky\.otf/);
 });
 
 test("emits @font-face rules only for installed fonts", () => {

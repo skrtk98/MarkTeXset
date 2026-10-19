@@ -81,8 +81,29 @@ function sha256(data: Uint8Array): string {
 
 export type Fetcher = (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
 
+// mirrors.ctan.org redirects each request to a different mirror, and some mirrors fail or lag behind.
+const RETRY_DELAYS_MS = [2000, 5000, 10000];
+
+async function download(font: FontFile, fetcher: Fetcher, retryDelays: number[], log: (message: string) => void): Promise<Uint8Array> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetcher(font.url);
+      if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ": " + font.url);
+      const data = new Uint8Array(await response.arrayBuffer());
+      const actual = sha256(data);
+      if (actual !== font.sha256) throw new Error("Checksum mismatch for " + font.file + ": expected " + font.sha256 + ", got " + actual);
+      return data;
+    } catch (error) {
+      const message = error instanceof Error ? error.message + (error.cause instanceof Error ? " (" + error.cause.message + ")" : "") : String(error);
+      if (attempt >= retryDelays.length) throw new Error(message.includes(font.url) ? message : message + ": " + font.url);
+      log("Retrying " + font.file + " after error: " + message);
+      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+    }
+  }
+}
+
 /** Downloads missing fonts, verifies each pinned SHA-256, and writes them atomically. */
-export async function installFonts(options: { force?: boolean; directory?: string; files?: FontFile[]; fetcher?: Fetcher; log?: (message: string) => void } = {}): Promise<void> {
+export async function installFonts(options: { force?: boolean; directory?: string; files?: FontFile[]; fetcher?: Fetcher; log?: (message: string) => void; retryDelays?: number[] } = {}): Promise<void> {
   const directory = options.directory ?? fontDirectory();
   const fetcher = options.fetcher ?? fetch;
   const log = options.log ?? (() => undefined);
@@ -91,11 +112,7 @@ export async function installFonts(options: { force?: boolean; directory?: strin
     const target = path.join(directory, font.file);
     if (!options.force && fs.existsSync(target) && sha256(fs.readFileSync(target)) === font.sha256) { log("Already installed " + font.file); convertFont(font, directory, false, log); continue; }
     log("Downloading " + font.url);
-    const response = await fetcher(font.url);
-    if (!response.ok) throw new Error("Download failed with HTTP " + response.status + ": " + font.url);
-    const data = new Uint8Array(await response.arrayBuffer());
-    const actual = sha256(data);
-    if (actual !== font.sha256) throw new Error("Checksum mismatch for " + font.file + ": expected " + font.sha256 + ", got " + actual);
+    const data = await download(font, fetcher, options.retryDelays ?? RETRY_DELAYS_MS, log);
     const temporary = target + "." + process.pid + ".tmp";
     fs.writeFileSync(temporary, data);
     fs.renameSync(temporary, target);
