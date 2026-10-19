@@ -65,7 +65,7 @@ const BINARY = new Set(["+", "-", "\\pm", "\\mp", "\\times", "\\cdot", "\\cup", 
 const OPENERS = new Set(["(", "[", "\\{", "\\lbrace", "\\langle", "\\lfloor", "\\lceil", "\\lvert", "\\lVert", "\\left", "\\begin"]);
 const CLOSERS = new Set([")", "]", "\\}", "\\rbrace", "\\rangle", "\\rfloor", "\\rceil", "\\rvert", "\\rVert", "\\right", "\\end"]);
 // Bars open and close with the same symbol.
-const BARS = new Set(["|", "\\|", "\\vert", "\\Vert"]);
+const BARS = new Set(["|", "||", "\\|", "\\vert", "\\Vert"]);
 // Commands whose effect reaches past their own group; splitting would change the formula.
 const UNSPLITTABLE = /\\(?:over|atop|choose|above|brace|brack|displaystyle|textstyle|scriptstyle|scriptscriptstyle|color|rm|bf|it|sf|tt|cal|mit|frak|Bbb|bold|not)(?![A-Za-z])|\\\\|&/;
 
@@ -77,7 +77,8 @@ export interface InlineMathPart { tex: string; after?: "rel" | "bin"; }
  */
 export function inlineMathParts(tex: string): InlineMathPart[] {
   if (UNSPLITTABLE.test(tex)) return [{ tex }];
-  const tokens = tex.match(/\\[A-Za-z]+|\\.|\s+|[\s\S]/g) ?? [];
+  // A raw `||` is one norm delimiter, like `\|`.
+  const tokens = tex.match(/\\[A-Za-z]+|\\.|\|\||\s+|[\s\S]/g) ?? [];
   const significant = tokens.map((token, index) => ({ token, index })).filter((item) => !/^\s+$/.test(item.token));
   const parts: InlineMathPart[] = [];
   let depth = 0;
@@ -89,7 +90,7 @@ export function inlineMathParts(tex: string): InlineMathPart[] {
     if (token === "{" || OPENERS.has(token)) { depth++; return; }
     if (token === "}" || CLOSERS.has(token)) { depth = Math.max(0, depth - 1); return; }
     if (BARS.has(token)) {
-      const name = token === "\\vert" ? "|" : token === "\\Vert" ? "\\|" : token;
+      const name = token === "\\vert" ? "|" : token === "\\Vert" || token === "||" ? "\\|" : token;
       if (openBars.delete(name)) depth = Math.max(0, depth - 1);
       else { openBars.add(name); depth++; }
       return;

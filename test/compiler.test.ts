@@ -783,7 +783,7 @@ test("prints every counter format that templates accept", () => {
 
 test("lets inline math break after top-level relations and binary operators, as TeX does", () => {
   assert.deepEqual(inlineMathParts("T(au+bv) = aT(u)+bT(v)").map((part) => part.after), ["rel", "bin", undefined]);
-  for (const [tex, parts] of [["-x + y", 2], ["a_{i+1} = b", 2], ["\\sqrt[n+1]{x} = y", 2], ["\\left( a + b \\right) = c", 2], ["\\|A - A_k\\|_2 = \\sigma", 2], ["|x - y| < \\varepsilon", 2], ["\\{ x \\in X : x > 0 \\}", 1], ["a \\over b + c", 1], ["\\color{red} a = b", 1], ["a \\not= b", 1], ["x^{-1}", 1], ["a =^{\\text{def}} b", 1], ["a \\le -b", 2]] as const) {
+  for (const [tex, parts] of [["-x + y", 2], ["a_{i+1} = b", 2], ["\\sqrt[n+1]{x} = y", 2], ["\\left( a + b \\right) = c", 2], ["\\|A - A_k\\|_2 = \\sigma", 2], ["|x - y| < \\varepsilon", 2], ["||A - B||_F = 0", 2], ["||x + y|| \\le ||x|| + ||y||", 3], ["\\{ x \\in X : x > 0 \\}", 1], ["a \\over b + c", 1], ["\\color{red} a = b", 1], ["a \\not= b", 1], ["x^{-1}", 1], ["a =^{\\text{def}} b", 1], ["a \\le -b", 2]] as const) {
     assert.equal(inlineMathParts(tex).length, parts, tex);
   }
   const result = compile("Inline $T(au+bv) = aT(u)+bT(v)$ and $x$.\n");
