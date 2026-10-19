@@ -9,11 +9,14 @@ on:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - name: Install Chromium and Poppler
@@ -27,6 +30,18 @@ jobs:
           key: fonts-${{ hashFiles('src/fonts.ts') }}
       - run: npx tsx src/cli.ts fonts install
       - run: npm run check
+      - name: Smoke-test the packed package
+        if: matrix.node == 24
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP"
+          npm init -y > /dev/null
+          npm install ./marktexset-*.tgz
+          npx playwright install chromium
+          printf -- '---\nmathmd:\n  meta:\n    title: Smoke test\n---\n\n<maketitle />\n\n# Hello\n\nInline $x^2$.\n' > hello.md
+          npx marktexset build hello.md --format pdf -o hello.pdf
+          pdfinfo hello.pdf
+          node --input-type=module -e 'import { compile } from "marktexset"; if (compile("$x$").diagnostics.hasErrors) process.exit(1);'
 
   quality:
     # Compares the quality samples with the Pandoc + LuaLaTeX baseline; the report is informational.
