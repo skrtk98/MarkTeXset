@@ -343,6 +343,20 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   return { text, values };
 }
 
+/** Blanks out the lines of fenced code blocks, so directive counts ignore examples in code. */
+function withoutFencedCode(markdown: string): string {
+  let fence: string | undefined;
+  return markdown.split("\n").map((line) => {
+    if (fence) {
+      if (new RegExp("^ {0,3}" + fence[0] + "{" + fence.length + ",}\\s*$").test(line)) fence = undefined;
+      return "";
+    }
+    const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (opening) fence = opening[1];
+    return opening ? "" : line;
+  }).join("\n");
+}
+
 // Punctuation that may not start a line, in Latin text and under JIS X 4051.
 const NO_BREAK_BEFORE = /^[,.;:!?)\]}、。，．・：；？！）」』】〕〉》｝］…‥]$/;
 
@@ -429,6 +443,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   // Nested Markdown, such as a Callout body, keeps the heading state at its Callout.
   if (context.depth === 0) context.outline = new Outline(config, markdownOutline(lines.join("\n")));
   const output: string[] = [];
+  let fence: string | undefined;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (context.depth === 0) context.outline.advanceTo(i);
@@ -439,6 +454,18 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
       if (j >= lines.length) diagnostics.error("UNCLOSED_TIKZCD", "tikzcd fence is not closed.");
       output.push(token(renderTikzCd(body.join("\n"))));
       i = j;
+      continue;
+    }
+    // Lines inside a fenced code block are code: directives, Callouts, and heading attributes there stay literal.
+    if (fence) {
+      output.push(line);
+      if (new RegExp("^ {0,3}" + fence[0] + "{" + fence.length + ",}\\s*$").test(line)) fence = undefined;
+      continue;
+    }
+    const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (opening) {
+      fence = opening[1];
+      output.push(line);
       continue;
     }
     const styleMarker = line.match(/^MATHMDSTYLE(style-scope-\d+)TOKEN$/);
@@ -767,13 +794,14 @@ export function compile(source: string, file = "document.md", options: CompileOp
   const bibEntries = readBibliography(loaded.config, file, diagnostics);
   let html = renderMarkdownBody(extractedStyles.body, loaded.config, context, diagnostics);
   html = html.replace(/<p>(?=<div\b)/g, "").replace(/<\/div><\/p>/g, "</div>");
-  const tocCount = (extractedStyles.body.match(/<maketoc\s*\/>/g) ?? []).length;
-  const titleCount = (extractedStyles.body.match(/<maketitle\s*\/>/g) ?? []).length;
-  const referencesCount = (extractedStyles.body.match(/<references\s*\/>/g) ?? []).length;
+  const prose = withoutFencedCode(extractedStyles.body);
+  const tocCount = (prose.match(/<maketoc\s*\/>/g) ?? []).length;
+  const titleCount = (prose.match(/<maketitle\s*\/>/g) ?? []).length;
+  const referencesCount = (prose.match(/<references\s*\/>/g) ?? []).length;
   for (const name of ["frontmatter", "mainmatter", "backmatter"]) {
-    if (loaded.config.layout.class !== "book" && new RegExp("^<" + name + "\\s*/\\s*>$", "m").test(extractedStyles.body)) diagnostics.error("BOOK_ONLY_DIRECTIVE", "<" + name + " /> is only available in the book class.");
+    if (loaded.config.layout.class !== "book" && new RegExp("^<" + name + "\\s*/\\s*>$", "m").test(prose)) diagnostics.error("BOOK_ONLY_DIRECTIVE", "<" + name + " /> is only available in the book class.");
   }
-  if ((extractedStyles.body.match(/^<appendix\s*\/\s*>$/gm) ?? []).length > 1) diagnostics.warning("DUPLICATE_APPENDIX", "Only the first <appendix /> starts the appendix.");
+  if ((prose.match(/^<appendix\s*\/\s*>$/gm) ?? []).length > 1) diagnostics.warning("DUPLICATE_APPENDIX", "Only the first <appendix /> starts the appendix.");
   if (tocCount > 1) diagnostics.warning("DUPLICATE_TOC", "Only the first <maketoc /> is used.");
   if (titleCount > 1) diagnostics.warning("DUPLICATE_TITLE", "Only the first <maketitle /> is used.");
   if (referencesCount > 1) diagnostics.warning("DUPLICATE_REFERENCES", "Only the first <references /> is used.");

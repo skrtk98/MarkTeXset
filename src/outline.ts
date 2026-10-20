@@ -91,7 +91,11 @@ export class Outline {
     if (event.kind === "directive") {
       // Only the first <appendix /> counts, as with LaTeX's \appendix.
       if (event.name === "appendix") { if (!this.appendix) this.headings.fill(0); this.appendix = true; }
-      else this.matter = event.name === "frontmatter" ? "front" : event.name === "mainmatter" ? "main" : "back";
+      else {
+        this.matter = event.name === "frontmatter" ? "front" : event.name === "mainmatter" ? "main" : "back";
+        // Headings under unnumbered front and back matter chapters count from chapter 0.
+        if (this.matter !== "main" && this.config.layout.class === "book") this.headings.fill(0);
+      }
       return;
     }
     if (!this.numbers(event.level, event.unnumbered)) return;

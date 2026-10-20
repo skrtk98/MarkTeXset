@@ -374,11 +374,14 @@ test("Japanese chapter classes follow ltjsreport and ltjsbook", () => {
 });
 
 test("book front and back matter chapters are unnumbered, and matter directives need the book class", () => {
-  const result = compile("---\nmathmd:\n  layout:\n    class: book\n---\n<frontmatter />\n\n# Preface\n\n## Thanks\n\n<mainmatter />\n\n# First\n\n<backmatter />\n\n# Index\n");
+  const result = compile("---\nmathmd:\n  layout:\n    class: book\n---\n<frontmatter />\n\n# Preface\n\n## Thanks\n\n<mainmatter />\n\n# First\n\n## Part\n\n<backmatter />\n\n# Index\n\n## Terms\n");
   assert.deepEqual(result.diagnostics.items, []);
   assert.match(result.html, /<h1 class="chapter">Preface<\/h1>/);
   assert.match(result.html, /<span class="heading-number">Chapter 1<\/span> First/);
   assert.match(result.html, /<h1 class="chapter">Index<\/h1>/);
+  assert.match(result.html, /<h2>0\.1\. Thanks<\/h2>/);
+  assert.match(result.html, /<h2>1\.1\. Part<\/h2>/);
+  assert.match(result.html, /<h2>0\.1\. Terms<\/h2>/, "back matter headings count from chapter 0, as in the front matter");
   assert.match(result.html, /<div class="mathmd-directive mathmd-frontmatter"><\/div>/);
   const report = compile("---\nmathmd:\n  layout:\n    class: report\n---\n<frontmatter />\n\n# A\n\n<appendix />\n\n# B\n\n<appendix />\n\n# C\n");
   assert.deepEqual(report.diagnostics.items.map((item) => item.code).sort(), ["BOOK_ONLY_DIRECTIVE", "DUPLICATE_APPENDIX"]);
@@ -392,6 +395,15 @@ test("keeps closing punctuation on the line of the inline math before it", () =>
   assert.match(result.html, /<\/span>⁠、/);
   assert.match(result.html, /<\/span>⁠。/);
   assert.doesNotMatch(result.html, /<\/span>⁠ と/);
+});
+
+test("leaves directives, Callouts, and heading attributes inside fenced code literal", () => {
+  const result = compile("# One\n\n```markdown\n<appendix />\n<pagebreak />\n> [!theorem] {#thm:x}\n# Two {#sec:two}\n```\n\n~~~~\n<maketoc />\n~~~\n~~~~\n\n# Three\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /&lt;appendix \/&gt;\n&lt;pagebreak \/&gt;\n&gt; \[!theorem\] \{#thm:x\}\n# Two \{#sec:two\}/);
+  assert.match(result.html, /&lt;maketoc \/&gt;\n~~~/, "a shorter fence does not close a longer one");
+  assert.match(result.html, /<h1>2\. Three<\/h1>/, "the <appendix /> example does not letter later headings");
+  assert.doesNotMatch(result.html, /mathmd-directive|class="callout/);
 });
 
 test("prints heading and Callout references with their reference formats", () => {
