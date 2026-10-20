@@ -11,6 +11,7 @@ import { MONO_STACK, SERIF_STACK } from "./fonts.js";
 import { fetchRemoteResources, resetResourceCache, resolveRemoteResource } from "./resources.js";
 import { isMathJaxCommand, renderInlineMath, renderMath, renderMultilineMath, splitTopLevel } from "./math.js";
 import { renderTikzCd } from "./tikz.js";
+import { Outline, STRUCTURE_DIRECTIVES, htmlOutline, markdownOutline, type StructureDirective } from "./outline.js";
 import { parseCodeInfo, renderCodeFence } from "./code.js";
 import { applyScopedMarkers, extractStyleBlocks, loadImportedStyles, renderStyleCss, type ExtractedStyles } from "./styles.js";
 
@@ -25,11 +26,12 @@ export interface CompileResult {
 }
 
 interface RenderContext {
-  counters: Map<string, number>;
+  /** Heading state and Callout counters of the top-level line pass, shared with nested Markdown. */
+  outline: Outline;
+  depth: number;
   ids: Set<string>;
   references: Map<string, string>;
   unnumberedReferences: Set<string>;
-  figures: number;
   sourceFile: string;
   sourceText: string;
   config: Config;
@@ -221,15 +223,6 @@ function expandMacros(source: string, config: Config): string {
   return expanded;
 }
 
-function counterText(template: string, name: string, value: number): string {
-  return template.replace(/\{([^}]+)\}/g, (_m, expression: string) => {
-    const leaf = expression.trim().split(">").at(-1)?.trim() ?? "";
-    const pair = leaf.split(".");
-    if (pair.length !== 2) return "";
-    return pair[0] === name ? formatCounter(value, pair[1]) : "";
-  });
-}
-
 function renderCallout(name: string, body: string, config: Config, context: RenderContext, id: string | undefined, classes: string[], attributes: Record<string, string>, diagnostics: Diagnostics): string {
   const definitions = config.layout.callouts ?? {};
   const definition = definitions[name] ?? { title: name, style: "plain" };
@@ -239,9 +232,7 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   const numbered = /\{[^}]+\}/.test(title);
   let renderedTitle = title;
   if (numbered) {
-    const current = (context.counters.get(name) ?? 0) + 1;
-    context.counters.set(name, current);
-    renderedTitle = counterText(title, name, current);
+    renderedTitle = context.outline.format(title, name, context.outline.step(name, title));
   }
   // Only a title with a counter numbers the environment, so a reference with one has nothing to print.
   const reference = typeof definition.reference === "string" ? definition.reference : undefined;
@@ -253,17 +244,24 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   if (id) {
     if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
     context.ids.add(id);
-    context.references.set(id, reference !== undefined && !unnumberedReference ? counterText(reference, name, context.counters.get(name) ?? 0) : renderedTitle);
+    context.references.set(id, reference !== undefined && !unnumberedReference ? context.outline.format(reference, name, context.outline.value(name)) : renderedTitle);
   }
-  const content = renderMarkdownBody(body.trim() + "\n", config, context, diagnostics);
+  context.depth++;
+  let content: string;
+  let titleHtml: string;
+  try {
+    content = renderMarkdownBody(body.trim() + "\n", config, context, diagnostics);
+    titleHtml = renderMarkdownBody(renderedTitle + "\n", config, context, diagnostics).replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
+  } finally {
+    context.depth--;
+  }
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const customStyle = style === "plain" && configuredStyle !== "plain" ? "callout-style-" + configuredStyle : "";
   const classAttribute = ["callout", "callout-" + style, customStyle, typeof definition.class === "string" ? definition.class : "", ...classes].filter(Boolean).map(escapeHtml).join(" ");
-  const titleHtml = renderMarkdownBody(renderedTitle + "\n", config, context, diagnostics).replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
   return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + titleHtml + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
-function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext): { text: string; values: Map<string, string> } {
+function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext, outline: Outline): { text: string; values: Map<string, string> } {
   const { ids, references } = context;
   const values = new Map<string, string>();
   let index = 0;
@@ -272,9 +270,8 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
     values.set(token, html);
     return token;
   };
-  let equation = 0;
   // \eqref and \ref print the bare number, as in LaTeX; the reference template is for Markdown links.
-  const equationNumbers = new Map<string, number>();
+  const equationNumbers = new Map<string, string>();
   const resolveTexReferences = (value: string): string => value.replace(/\\(eqref|ref)\{([^}]+)\}/g, (_match, kind: string, id: string) => {
     const reference = references.get(id);
     if (!reference) {
@@ -282,11 +279,14 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
       return "\\text{??}";
     }
     const number = equationNumbers.get(id);
-    const label = number !== undefined ? (kind === "eqref" ? "(" + number + ")" : String(number)) : kind === "eqref" ? reference : reference.replace(/^\(|\)\s*$/g, "");
+    const label = number !== undefined ? (kind === "eqref" ? "(" + number + ")" : number) : kind === "eqref" ? reference : reference.replace(/^\(|\)\s*$/g, "");
     const escaped = label.replace(/[\\%#$&_{}]/g, "\\$&");
     return "\\href{#" + id.replace(/[^A-Za-z0-9:_-]/g, "") + "}{\\text{" + escaped + "}}";
   });
+  const display = String(config.layout.equation.display ?? "({equation.arabic})");
+  const lineOf = lineCounter(source);
   let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
+    outline.advanceTo(lineOf(offset));
     try {
       const sourceRange = mathSourceOffset(context, source, offset, match);
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
@@ -297,13 +297,15 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         const notag = /\\notag\b/.test(row.source ?? "");
         const numbered = Boolean(config.layout.equation.numbered) || Boolean(label);
         if (notag && label) diagnostics.error("NOTAG_LABEL", "\\notag and \\label cannot occur on the same equation row.");
-        const numberValue = numbered && !notag ? ++equation : 0;
-        const number = numberValue ? "<span class=\"equation-number\"" + inspectorAttributes(context, "number", String(numberValue), sourceRange.start, sourceRange.end) + " data-mathmd-number=\"" + numberValue + "\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">" + escapeHtml(counterLabel(String(config.layout.equation.display ?? "({equation.arabic})"), "equation", numberValue)) + "</span>" : "";
+        const numberValue = numbered && !notag ? outline.step("equation", display) : 0;
+        const numberText = numberValue ? outline.format(display, "equation", numberValue) : "";
+        const number = numberValue ? "<span class=\"equation-number\"" + inspectorAttributes(context, "number", String(numberValue), sourceRange.start, sourceRange.end) + " data-mathmd-number=\"" + numberValue + "\" style=\"grid-column:" + (maxCells + 3) + ";grid-row:" + (rowIndex + 1) + "\">" + escapeHtml(numberText) + "</span>" : "";
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
-          if (numberValue) equationNumbers.set(label, numberValue);
-          references.set(label, numberValue ? counterLabel(String(config.layout.equation.reference ?? "({equation.arabic})"), "equation", numberValue) : "equation");
+          // \eqref and \ref print the number without the parentheses of the display format.
+          if (numberValue) equationNumbers.set(label, numberText.replace(/^\((.*)\)$/, "$1"));
+          references.set(label, numberValue ? outline.format(String(config.layout.equation.reference ?? "({equation.arabic})"), "equation", numberValue) : "equation");
         }
         const rowSource = row.source ?? "";
         const rowId = context.mathInspector ? "row-" + rowIndex : undefined;
@@ -338,12 +340,14 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   return { text, values };
 }
 
-function counterLabel(template: string, counter: string, value: number): string {
-  return template.replace(/\{([A-Za-z0-9-]+)\.([A-Za-z]+)\}/g, (match, name: string, format: string) => name === counter ? formatCounter(value, format) : match);
-}
-
-function figureLabel(template: string, value: number): string {
-  return counterLabel(template, "figure", value);
+/** Maps character offsets, in increasing order, to zero-based line numbers. */
+function lineCounter(text: string): (offset: number) => number {
+  let line = 0;
+  let position = 0;
+  return (offset) => {
+    for (; position < offset && position < text.length; position++) if (text[position] === "\n") line++;
+    return line;
+  };
 }
 
 // Pandoc table captions: a paragraph starting with ':' or 'Table:' right before or after a table.
@@ -352,8 +356,10 @@ function captionTables(html: string, config: Config, context: RenderContext, dia
   const caption = "<p>(?:Table)?:\\s+([\\s\\S]*?)<\\/p>";
   const table = "(<table\\b(?:(?!<table\\b)[\\s\\S])*?<\\/table>)";
   const pattern = new RegExp(table + "\\s*" + caption + "|" + caption + "\\s*" + table, "g");
-  let tables = 0;
-  return html.replace(pattern, (_match, after: string | undefined, afterCaption: string | undefined, beforeCaption: string | undefined, before: string | undefined) => {
+  const outline = new Outline(config, htmlOutline(html));
+  const display = String(config.layout.table.display ?? "Table {table.arabic}.");
+  return html.replace(pattern, (_match, after: string | undefined, afterCaption: string | undefined, beforeCaption: string | undefined, before: string | undefined, offset: number) => {
+    outline.advanceTo(offset);
     const element = (after ?? before)!;
     let text = (afterCaption ?? beforeCaption)!.trim();
     const id = text.match(/\s*\{#([A-Za-z][A-Za-z0-9:_-]*)\}$/)?.[1];
@@ -362,9 +368,9 @@ function captionTables(html: string, config: Config, context: RenderContext, dia
       if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
       context.ids.add(id);
     }
-    const number = config.layout.table?.numbered !== false ? ++tables : 0;
-    if (id) context.references.set(id, number ? counterLabel(String(config.layout.table.reference ?? "Table {table.arabic}"), "table", number) : "Table");
-    const label = number ? counterLabel(String(config.layout.table.display ?? "Table {table.arabic}."), "table", number) : "";
+    const number = config.layout.table?.numbered !== false ? outline.step("table", display) : 0;
+    if (id) context.references.set(id, number ? outline.format(String(config.layout.table.reference ?? "Table {table.arabic}"), "table", number) : "Table");
+    const label = number ? outline.format(display, "table", number) : "";
     const captionHtml = "<caption class=\"table-caption\">" + [label, text].filter(Boolean).join(" ") + "</caption>";
     return element.replace(/^<table\b([^>]*)>/, (open, attributes: string) => "<table" + (id && !/\sid="/.test(attributes) ? " id=\"" + escapeHtml(id) + "\"" : "") + attributes + ">" + captionHtml);
   });
@@ -372,7 +378,11 @@ function captionTables(html: string, config: Config, context: RenderContext, dia
 
 function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
   let index = 0;
-  return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)(?:[ \t]*\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined) => {
+  const outline = context.depth === 0 ? new Outline(config, markdownOutline(source)) : context.outline.snapshot();
+  const lineOf = lineCounter(source);
+  const display = String(config.layout.figure.display ?? "Figure {figure.arabic}.");
+  return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)(?:[ \t]*\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined, offset: number) => {
+    outline.advanceTo(lineOf(offset));
     const remote = /^https?:/i.test(src);
     if (!remote && (/^(?:data:|\/\/)/i.test(src) || path.isAbsolute(src) || src.split(/[\\/]/).includes(".."))) {
       diagnostics.error("UNSUPPORTED_IMAGE", "Images must use local paths without parent directory traversal.");
@@ -394,9 +404,9 @@ function protectImages(source: string, config: Config, context: RenderContext, d
       context.ids.add(id);
     }
     const numbered = config.layout.figure?.numbered !== false;
-    const number = numbered ? ++context.figures : 0;
-    const label = number ? figureLabel(String(config.layout.figure.display ?? "Figure {figure.arabic}."), number) : "";
-    if (id) context.references.set(id, number ? figureLabel(String(config.layout.figure.reference ?? "Figure {figure.arabic}"), number) : "Figure");
+    const number = numbered ? outline.step("figure", display) : 0;
+    const label = number ? outline.format(display, "figure", number) : "";
+    if (id) context.references.set(id, number ? outline.format(String(config.layout.figure.reference ?? "Figure {figure.arabic}"), "figure", number) : "Figure");
     const caption = [label, alt].filter(Boolean).join(" ");
     const token = "MATHMDIMAGE" + index++ + "TOKEN";
     replacements.set(token, "<figure" + (id ? " id=\"" + escapeHtml(id) + "\"" : "") + " class=\"figure\"><img src=\"" + escapeHtml(src) + "\" alt=\"" + escapeHtml(alt) + "\"" + (title ? " title=\"" + escapeHtml(title) + "\"" : "") + ">" + (caption ? "<figcaption class=\"figure-caption\">" + escapeHtml(caption) + "</figcaption>" : "") + "</figure>");
@@ -410,9 +420,12 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   const token = (html: string): string => { const value = "MATHMDTOKEN" + sequence++ + "END"; replacements.set(value, html); return value; };
   const imageSafeSource = protectImages(source, config, context, diagnostics, replacements);
   const lines = imageSafeSource.replace(/\r\n/g, "\n").split("\n");
+  // Nested Markdown, such as a Callout body, keeps the heading state at its Callout.
+  if (context.depth === 0) context.outline = new Outline(config, markdownOutline(lines.join("\n")));
   const output: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (context.depth === 0) context.outline.advanceTo(i);
     if (/^```tikzcd\s*$/i.test(line)) {
       const body: string[] = [];
       let j = i + 1;
@@ -443,7 +456,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
       i = j - 1;
       continue;
     }
-    const directive = line.match(/^<(pagebreak|maketoc|maketitle|references)\s*\/\s*>$/);
+    const directive = line.match(/^<(pagebreak|maketoc|maketitle|references|appendix|frontmatter|mainmatter|backmatter)\s*\/\s*>$/);
     if (directive) {
       output.push(token("<div class=\"mathmd-directive mathmd-" + directive[1] + "\"></div>"));
       continue;
@@ -480,7 +493,9 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
     return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   });
-  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context);
+  const directiveToken = (paragraph: string) => replacements.get(paragraph)?.match(/^<div class="mathmd-directive mathmd-([a-z]+)"><\/div>$/)?.[1] as StructureDirective | undefined;
+  const mathOutline = context.depth === 0 ? new Outline(config, markdownOutline(commentSafeSource, (paragraph) => { const name = directiveToken(paragraph); return name && STRUCTURE_DIRECTIVES.has(name) ? name : undefined; })) : context.outline.snapshot();
+  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context, mathOutline);
   for (const [key, value] of protectedMath.values) replacements.set(key, value);
   return { text: protectedMath.text, replacements };
 }
@@ -516,10 +531,13 @@ function renderMarkdownBody(source: string, config: Config, context: RenderConte
 }
 
 function addHeadingNumbers(html: string, config: Config, references: Map<string, string>): string {
-  const counters = [0, 0, 0, 0, 0, 0, 0];
-  const depth = Number(config.layout.heading.numberingDepth ?? 3);
+  const outline = new Outline(config);
   const formats = config.layout.heading.formats ?? {};
-  return html.replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g, (_m, levelText: string, existingAttrs: string, content: string) => {
+  return html.replace(/<div class="mathmd-directive mathmd-([a-z]+)"><\/div>|<h([1-6])([^>]*)>([\s\S]*?)<\/h\2>/g, (_m, directive: string | undefined, levelText: string, existingAttrs: string, content: string) => {
+    if (directive) {
+      if (STRUCTURE_DIRECTIVES.has(directive)) outline.apply({ line: 0, kind: "directive", name: directive as StructureDirective });
+      return _m;
+    }
     const level = Number(levelText);
     if (existingAttrs.includes("document-title-heading")) return _m;
     const marker = "MATHMDNONUM ";
@@ -546,12 +564,11 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
     if (unnumbered) {
       return "<h" + level + attrs + ">" + content + "</h" + level + ">";
     }
-    if (!config.layout.heading.numbered || level > depth) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
-    counters[level]++;
-    for (let i = level + 1; i <= 6; i++) counters[i] = 0;
+    if (!outline.numbers(level, false)) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
+    outline.apply({ line: 0, kind: "heading", level, unnumbered: false });
     const format = String(formats["h" + level] ?? "");
     // A scoped placeholder such as {h1 > h2.arabic} prints its last counter.
-    const formatNumber = (template: string) => template.replace(/\{(?:[^{}>]*>)*\s*h([1-6])\.([A-Za-z]+)\s*\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
+    const formatNumber = (template: string) => template.replace(/\{(?:[^{}>]*>)*\s*h([1-6])\.([A-Za-z]+)\s*\}/g, (_x: string, n: string, style: string) => outline.heading(Number(n), style));
     const number = formatNumber(format);
     const reference = config.layout.heading.reference?.["h" + level];
     if (id && typeof reference === "string") references.set(id, formatNumber(reference));
@@ -714,11 +731,11 @@ export function compile(source: string, file = "document.md", options: CompileOp
     if (item.index === firstContent || item.index === lastContent || previous === "<pagebreak />" || next === "<pagebreak />") diagnostics.warning("EMPTY_PAGE", "A pagebreak creates an empty page.", locationFor(extractedStyles.body, file, extractedStyles.body.split(/\r?\n/).slice(0, item.index).join("\n").length));
   }
   const context: RenderContext = {
-    counters: new Map(),
+    outline: new Outline(loaded.config),
+    depth: 0,
     ids: new Set(),
     references: new Map(),
     unnumberedReferences: new Set(),
-    figures: 0,
     sourceFile: file,
     sourceText: source,
     config: loaded.config,

@@ -312,6 +312,33 @@ test("unnumbered headings do not advance or reset heading counters", () => {
   assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. A</h1>", "<h2>1.1. A1</h2>", "<h1>B</h1>", "<h2>1.2. B1</h2>", "<h1>2. C</h1>"]);
 });
 
+test("scoped counters restart at each heading of their scope and print heading numbers", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-scoped-"));
+  fs.writeFileSync(path.join(directory, "image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>");
+  const config = "---\nmathmd:\n  layout:\n    equation:\n      display: \"({h1.arabic}.{h1 > equation.arabic})\"\n      reference: \"Eq. ({h1.arabic}.{h1 > equation.arabic})\"\n    figure:\n      display: \"Figure {h1.arabic}.{h1 > figure.arabic}.\"\n      reference: \"Figure {h1.arabic}.{h1 > figure.arabic}\"\n    table:\n      display: \"Table {h1.arabic}-{h1 > table.alph}.\"\n    callouts:\n      theorem:\n        title: \"Theorem {h1.arabic}.{h1 > theorem.arabic}.\"\n        reference: \"Theorem {h1.arabic}.{h1 > theorem.arabic}\"\n      lemma:\n        title: \"Lemma {lemma.arabic}.\"\n---\n";
+  const chapter = (name: string, id: string) => "# " + name + "\n\n> [!theorem] {#thm:" + id + "}\n> A.\n\n> [!lemma]\n> L.\n\n$$x \\label{eq:" + id + "}$$\n\n![Picture](image.svg){#fig:" + id + "}\n\n| a |\n|---|\n| 1 |\n\n: Caption\n\n";
+  const body = chapter("One", "a1") + "> [!theorem] {#thm:a2}\n> B.\n\n$$y \\label{eq:a2}$$\n\n" + "#: Unnumbered\n\n> [!theorem] {#thm:a3}\n> C.\n\n" + chapter("Two", "b1") + "[](#thm:a3) [](#thm:b1) [](#eq:b1) [](#fig:b1) $\\eqref{eq:a2}$\n";
+  const result = compile(config + body, path.join(directory, "document.md"));
+  assert.deepEqual(result.diagnostics.items.map((item) => item.code), []);
+  assert.deepEqual(result.html.match(/Theorem \d\.\d\.(?=<)/g), ["Theorem 1.1.", "Theorem 1.2.", "Theorem 1.3.", "Theorem 2.1."]);
+  assert.deepEqual(result.html.match(/Lemma \d\./g), ["Lemma 1.", "Lemma 2."], "unscoped counters run through the document");
+  assert.deepEqual(result.html.match(/data-mathmd-number="\d+"[^>]*>[^<]*/g)?.map((item) => item.replace(/.*>/, "")), ["(1.1)", "(1.2)", "(2.1)"]);
+  assert.deepEqual(result.html.match(/Figure \d\.\d\. Picture/g), ["Figure 1.1. Picture", "Figure 2.1. Picture"]);
+  assert.deepEqual(result.html.match(/Table \d-[a-z]\./g), ["Table 1-a.", "Table 2-a."]);
+  assert.match(result.html, /href="#thm:a3">Theorem 1\.3<\/a>/, "an unnumbered heading does not restart counters");
+  assert.match(result.html, /href="#thm:b1">Theorem 2\.1<\/a>/);
+  assert.match(result.html, /href="#eq:b1">Eq\. \(2\.1\)<\/a>/);
+  assert.match(result.html, /href="#fig:b1">Figure 2\.1<\/a>/);
+  assert.match(result.html, /<mtext href="#eq:a2">\(1\.2\)<\/mtext>/, "\\eqref prints the chapter-relative number");
+});
+
+test("an appendix restarts top-level headings and letters them", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      theorem:\n        title: \"Theorem {h1.arabic}.{h1 > theorem.arabic}.\"\n---\n# One\n\n## Sub\n\n<appendix />\n\n# Proofs\n\n## Details\n\n> [!theorem]\n> A.\n\n# More\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. One</h1>", "<h2>1.1. Sub</h2>", "<h1>A. Proofs</h1>", "<h2>A.1. Details</h2>", "<h1>B. More</h1>"]);
+  assert.match(result.html, /Theorem A\.1\./);
+});
+
 test("prints heading and Callout references with their reference formats", () => {
   const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
   const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
