@@ -29,6 +29,9 @@ interface RenderContext {
   /** Heading state and Callout counters of the top-level line pass, shared with nested Markdown. */
   outline: Outline;
   depth: number;
+  /** Numbers of labelled equations for \eqref and \ref, and a counter that keeps math tokens unique. */
+  equationNumbers: Map<string, string>;
+  mathTokens: number;
   ids: Set<string>;
   references: Map<string, string>;
   unnumberedReferences: Set<string>;
@@ -261,17 +264,17 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   return "<div" + renderAttributes(id ?? "", classAttribute, attributes) + "><div class=\"callout-title\">" + titleHtml + "</div><div class=\"callout-body\">" + content + qed + "</div></div>";
 }
 
-function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext, outline: Outline): { text: string; values: Map<string, string> } {
-  const { ids, references } = context;
+// Display equations are numbered with the line pass's outline, which is at the heading state of the text being processed.
+function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext): { text: string; values: Map<string, string> } {
+  const { ids, references, equationNumbers } = context;
+  const outline = context.outline;
   const values = new Map<string, string>();
-  let index = 0;
   const put = (html: string): string => {
-    const token = "MATHMDMATH" + index++ + "TOKEN";
+    const token = "MATHMDMATH" + context.mathTokens++ + "TOKEN";
     values.set(token, html);
     return token;
   };
   // \eqref and \ref print the bare number, as in LaTeX; the reference template is for Markdown links.
-  const equationNumbers = new Map<string, string>();
   const resolveTexReferences = (value: string): string => value.replace(/\\(eqref|ref)\{([^}]+)\}/g, (_match, kind: string, id: string) => {
     const reference = references.get(id);
     if (!reference) {
@@ -286,9 +289,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   const display = String(config.layout.equation.display ?? "({equation.arabic})");
   // \eqref and \ref print the number alone, like LaTeX's \theequation: the display format from its first placeholder to its last.
   const bareNumber = display.slice(display.indexOf("{"), display.lastIndexOf("}") + 1);
-  const lineOf = lineCounter(source);
   let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
-    outline.advanceTo(lineOf(offset));
     try {
       const sourceRange = mathSourceOffset(context, source, offset, match);
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
@@ -441,11 +442,27 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   const imageSafeSource = protectImages(source, config, context, diagnostics, replacements);
   const lines = imageSafeSource.replace(/\r\n/g, "\n").split("\n");
   // Nested Markdown, such as a Callout body, keeps the heading state at its Callout.
-  if (context.depth === 0) context.outline = new Outline(config, markdownOutline(lines.join("\n")));
+  const events = context.depth === 0 ? markdownOutline(lines.join("\n")) : [];
+  if (context.depth === 0) context.outline = new Outline(config, events);
+  const eventLines = new Set(events.map((event) => event.line));
   const output: string[] = [];
+  const mathValues = new Map<string, string>();
+  // Math is numbered in document order: the text before each heading, directive, or Callout is processed
+  // before the outline moves past it or the Callout renders its own equations.
+  let processed = 0;
+  const flushMath = (): void => {
+    const pending = output.slice(processed).join("\n");
+    // Never split a comment or a display equation; numbering waits for the next flush instead.
+    if ((pending.match(/<!--/g) ?? []).length !== (pending.match(/-->/g) ?? []).length || (pending.match(/\$\$/g) ?? []).length % 2) return;
+    const math = protectMath(pending.replace(/<!--[\s\S]*?-->/g, (comment) => token(comment)), config, diagnostics, context);
+    for (const [key, value] of math.values) mathValues.set(key, value);
+    output.splice(processed, output.length - processed, math.text);
+    processed = output.length;
+  };
   let fence: string | undefined;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (!fence && (eventLines.has(i) || /^>\s*\[!([^\]]+)\]/.test(line))) flushMath();
     if (context.depth === 0) context.outline.advanceTo(i);
     if (/^```tikzcd\s*$/i.test(line)) {
       const body: string[] = [];
@@ -516,6 +533,14 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     }
     output.push(line);
   }
+  if (context.depth === 0) context.outline.advanceTo(lines.length);
+  flushMath();
+  if (processed < output.length) {
+    // An unclosed comment or display equation: process the rest as it stands.
+    const math = protectMath(output.splice(processed).join("\n"), config, diagnostics, context);
+    for (const [key, value] of math.values) mathValues.set(key, value);
+    output.push(math.text);
+  }
   const footnoteDefinitions = new Set([...source.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
   const footnoteDefinitionCounts = new Map<string, number>();
   for (const match of source.matchAll(/^\[\^([^\]]+)\]:/gm)) footnoteDefinitionCounts.set(match[1], (footnoteDefinitionCounts.get(match[1]) ?? 0) + 1);
@@ -526,11 +551,8 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
     return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   });
-  const directiveToken = (paragraph: string) => replacements.get(paragraph)?.match(/^<div class="mathmd-directive mathmd-([a-z]+)"><\/div>$/)?.[1] as StructureDirective | undefined;
-  const mathOutline = context.depth === 0 ? new Outline(config, markdownOutline(commentSafeSource, (paragraph) => { const name = directiveToken(paragraph); return name && STRUCTURE_DIRECTIVES.has(name) ? name : undefined; })) : context.outline.snapshot();
-  const protectedMath = protectMath(commentSafeSource, config, diagnostics, context, mathOutline);
-  for (const [key, value] of protectedMath.values) replacements.set(key, value);
-  return { text: protectedMath.text, replacements };
+  for (const [key, value] of mathValues) replacements.set(key, value);
+  return { text: commentSafeSource, replacements };
 }
 
 function renderMarkdownBody(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
@@ -782,6 +804,8 @@ export function compile(source: string, file = "document.md", options: CompileOp
   const context: RenderContext = {
     outline: new Outline(loaded.config),
     depth: 0,
+    equationNumbers: new Map(),
+    mathTokens: 0,
     ids: new Set(),
     references: new Map(),
     unnumberedReferences: new Set(),

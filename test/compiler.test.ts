@@ -406,6 +406,14 @@ test("leaves directives, Callouts, and heading attributes inside fenced code lit
   assert.doesNotMatch(result.html, /mathmd-directive|class="callout/);
 });
 
+test("numbers equations inside Callouts in document order with the surrounding chapter", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    class: report\n---\n# One\n\n$$a \\label{eq:a}$$\n\n> [!theorem]\n> $$b \\label{eq:b}$$\n>\n> See $\\eqref{eq:a}$.\n\n$$c \\label{eq:c}$$\n\n# Two\n\n> [!theorem]\n> $$d \\label{eq:d}$$\n\n$$e \\label{eq:e}$$\n\n[](#eq:b) $\\eqref{eq:c}$ [](#eq:d)\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.deepEqual(result.html.match(/data-mathmd-number="\d+"[^>]*>[^<]*/g)?.map((item) => item.replace(/.*>/, "")), ["(1.1)", "(1.2)", "(1.3)", "(2.1)", "(2.2)"]);
+  assert.match(result.html, /<mtext href="#eq:a">\(1\.1\)<\/mtext>/);
+  assert.match(result.html, /href="#eq:b">\(1\.2\)<\/a> .*<mtext href="#eq:c">\(1\.3\)<\/mtext>.* <a href="#eq:d">\(2\.1\)<\/a>/s);
+});
+
 test("prints heading and Callout references with their reference formats", () => {
   const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
   const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
