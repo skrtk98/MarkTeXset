@@ -94,8 +94,18 @@ const BROWSER_SCRIPT = String.raw`
     return style.fontStyle + " " + style.fontWeight + " " + style.fontSize + " " + style.fontFamily;
   }
 
+  // TeX's space factors under \\nonfrenchspacing: after a sentence-ending mark the space gets a third more width and
+  // three times the stretch, unless the mark follows a capital; colons, semicolons, and commas stretch a little more.
+  function spaceFactor(word) {
+    var trimmed = word.replace(/[)\]'"’”]+$/, "");
+    var mark = trimmed.slice(-1);
+    if (/[.?!]/.test(mark)) return /[A-Z]/.test(trimmed.slice(-2, -1)) ? 999 : 3000;
+    return { ":": 2000, ";": 1500, ",": 1250 }[mark] || 1000;
+  }
+
   function buildItems(p, hyphenation) {
     var items = [];
+    var lastWord = "";
     var footnotes = Array.prototype.slice.call(document.querySelectorAll(".mathmd-footnote"));
     textNodes(p).forEach(function (node) {
       if (node.nodeType === 1) {
@@ -107,6 +117,7 @@ const BROWSER_SCRIPT = String.raw`
           width = canvas.measureText(String(footnotes.indexOf(node) + 1)).width;
         }
         items.push({ type: "box", width: width });
+        lastWord = "";
         return;
       }
       canvas.font = fontOf(node.parentElement);
@@ -119,10 +130,13 @@ const BROWSER_SCRIPT = String.raw`
           var last = items[items.length - 1];
           if (!items.length || last.type === "glue") continue;
           var mathGlue = node.parentElement.classList.contains("math-glue") ? MATH_PENALTY[node.parentElement.classList[1]] || 0 : 0;
-          items.push({ type: "glue", width: space, stretch: space / 2, shrink: space / 3, node: node, start: start, end: start + match[1].length, penalty: mathGlue });
+          var factor = spaceFactor(lastWord) / 1000;
+          var extra = factor >= 2 ? space / 3 : 0;
+          items.push({ type: "glue", width: space + extra, stretch: space / 2 * factor, shrink: space / 3 / factor, extra: extra, node: node, start: start, end: start + match[1].length, penalty: mathGlue });
           continue;
         }
         var chunk = match[2];
+        lastWord = chunk;
         var breaks = [];
         var letters = /[A-Za-z]+/g, word;
         while ((word = letters.exec(chunk))) (hyphenation[word[0]] || []).forEach(function (offset) { breaks.push({ offset: word.index + offset, explicit: false }); });
@@ -218,8 +232,22 @@ const BROWSER_SCRIPT = String.raw`
     var indent = style.textIndent;
     // Insert markers from the end so earlier text offsets stay valid.
     var markers = [];
-    breaks.slice(0, -1).slice().reverse().forEach(function (point) {
-      var item = items[point.position];
+    var breakAt = {};
+    breaks.slice(0, -1).forEach(function (point) { breakAt[point.position] = true; });
+    for (var position = items.length - 1; position >= 0; position--) {
+      var item = items[position];
+      if (!breakAt[position]) {
+        // A widened space keeps its extra width in the justified line.
+        if (item.type === "glue" && item.extra) {
+          var spaceRange = document.createRange();
+          spaceRange.setStart(item.node, item.start);
+          spaceRange.setEnd(item.node, item.end);
+          var wide = document.createElement("span");
+          wide.style.wordSpacing = item.extra.toFixed(3) + "px";
+          spaceRange.surroundContents(wide);
+        }
+        continue;
+      }
       var marker = document.createElement("span");
       marker.setAttribute("data-mathmd-line-break", "");
       var range = document.createRange();
@@ -228,7 +256,7 @@ const BROWSER_SCRIPT = String.raw`
       range.insertNode(marker);
       if (item.type === "penalty" && item.hyphen) marker.parentNode.insertBefore(document.createTextNode("‐"), marker);
       markers.unshift(marker);
-    });
+    }
     var fragments = [];
     for (var i = markers.length; i >= 0; i--) {
       var range = document.createRange();
