@@ -67,6 +67,40 @@ test("applies page styles from the page that follows a style marker", async () =
   assert.equal(third.filter((line) => line === "3. Gamma").length, 1, "plain style has no running head");
 });
 
+test("a book opens chapters on right-hand pages, numbers front matter in roman, and sets facing running heads", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-book-"));
+  const output = path.join(directory, "document.pdf");
+  const paragraph = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(6);
+  const chapter = (name: string) => "# " + name + "\n\n" + paragraph + "\n\n## " + name + " section\n\n" + Array(8).fill(paragraph).join("\n\n") + "\n\n";
+  const source = "---\nmathmd:\n  meta:\n    title: A Book\n  layout:\n    class: book\n---\n<maketitle />\n\n<frontmatter />\n\n<maketoc />\n\n# Preface\n\n" + paragraph + "\n\n<mainmatter />\n\n" + chapter("Alpha") + chapter("Beta") + "<backmatter />\n\n# Index\n\n" + paragraph + "\n";
+  const result = compile(source);
+  assert.deepEqual(result.diagnostics.items, []);
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  assert.deepEqual(result.diagnostics.items, [], "the blank left-hand pages before chapters are intended");
+  const pages = Array.from({ length: 11 }, (_, index) => pageText(output, index + 1).split("\n").map((line) => line.trim()).filter(Boolean));
+  assert.equal(pages[0][0], "A Book");
+  assert.ok(!pages[0].includes("1"), "the title page has no page number");
+  assert.deepEqual(pages[1], [], "the back of the title page is blank");
+  assert.deepEqual(pages[2].map((line) => line.replace(/\s+/g, " ")), ["Contents", "Preface iii", "1 Alpha 1", "1.1. Alpha section 1", "2 Beta 3", "2.1. Beta section 3", "Index 5", "i"], "the contents page is plain and lists front matter pages in roman");
+  assert.deepEqual(pages[3], [], "a blank left-hand page has no running head or number");
+  assert.deepEqual([pages[4][0], pages[4].at(-1)], ["Preface", "iii"]);
+  assert.deepEqual([pages[6][0], pages[6][1], pages[6].at(-1)], ["Chapter 1", "Alpha", "1"], "a chapter opens on a plain right-hand page");
+  assert.match(pages[7][0], /^2\s+Chapter 1 Alpha$/, "a left-hand page has the page number and the chapter in its head");
+  assert.ok(!pages[7].slice(1).includes("2"), "running-head pages have no page number at the bottom");
+  assert.deepEqual([pages[8][0], pages[10][0], pages[10].at(-1)], ["Chapter 2", "Index", "5"]);
+});
+
+test("a report starts each chapter on a new page after a title page", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-report-"));
+  const output = path.join(directory, "document.pdf");
+  const result = compile("---\nmathmd:\n  meta:\n    title: A Report\n  layout:\n    class: report\n---\n<maketitle />\n\n# Alpha\n\nOne.\n\n# Beta\n\nTwo.\n");
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(execFileSync("pdfinfo", [output], { encoding: "utf8" }), /Pages:\s+3/);
+  const pages = [1, 2, 3].map((page) => pageText(output, page).split("\n").map((line) => line.trim()).filter(Boolean));
+  assert.deepEqual(pages, [["A Report", new Date().toISOString().slice(0, 10)], ["Chapter 1", "Alpha", "One.", "1"], ["Chapter 2", "Beta", "Two.", "2"]]);
+});
+
 test("splits long paragraphs across pages instead of pushing them to the next page", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-paragraph-"));
   const output = path.join(directory, "document.pdf");

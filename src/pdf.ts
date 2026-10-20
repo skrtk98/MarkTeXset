@@ -21,13 +21,13 @@ function pageMargins(value: unknown): string {
   return [margins.top, margins.right, margins.bottom, margins.left].map((item) => cssLength(item ?? "25mm")).join(" ");
 }
 
-function pageContent(config: Record<string, any>): string {
+function pageContent(config: Record<string, any>, style?: string): string {
   const format = String(config.layout?.page?.number?.format ?? "{page.arabic}");
   const styles: Record<string, string> = { arabic: "decimal", roman: "lower-roman", Roman: "upper-roman", alph: "lower-alpha", Alph: "upper-alpha" };
   const parts = format.split(/\{page\.([A-Za-z]+)\}/);
   const tokens: string[] = [];
   parts.forEach((part, index) => {
-    if (index % 2 === 1) tokens.push("counter(page, " + (styles[part] ?? "decimal") + ")");
+    if (index % 2 === 1) tokens.push("counter(page, " + (style ?? styles[part] ?? "decimal") + ")");
     else if (part) tokens.push(`"${part.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`);
   });
   return tokens.join(" ");
@@ -83,6 +83,51 @@ function inlineFootnotes(html: string): string {
 function bindPageStyleMarkers(html: string): string {
   const breaks = "(?:\\s*<div class=\"mathmd-directive mathmd-pagebreak\"[^>]*><\\/div>)+";
   return html.replace(new RegExp("(<div class=\"mathmd-directive mathmd-pagestyle\" data-name=\"[^\"]*\"><\\/div>)(" + breaks + ")", "g"), "$2$1");
+}
+
+// <frontmatter />, <mainmatter />, and <backmatter /> each start a section that runs to the next one,
+// so the front matter can have its own page numbering.
+function wrapMatter(html: string): string {
+  const directive = /<div class="mathmd-directive mathmd-(frontmatter|mainmatter|backmatter)"><\/div>/;
+  const start = html.search(/<body\b/);
+  const end = html.lastIndexOf("</body>");
+  if (start < 0 || end < 0 || !directive.test(html)) return html;
+  const open = html.indexOf(">", start) + 1;
+  const parts = html.slice(open, end).split(new RegExp(directive.source));
+  let body = parts[0];
+  for (let index = 1; index < parts.length; index += 2) body += "<div class=\"mathmd-matter mathmd-" + parts[index] + "\">" + parts[index + 1] + "</div>";
+  return html.slice(0, open) + body + html.slice(end);
+}
+
+// report and book follow LaTeX: chapters start a new page (a right-hand page in a book), the title gets a page
+// of its own, and a book sets running heads on facing pages and numbers its front matter with roman numerals.
+function chapterCss(config: Record<string, any>, pageNumber: string): string {
+  const documentClass = config.layout?.class;
+  if (documentClass !== "report" && documentClass !== "book") return "";
+  const book = documentClass === "book";
+  const opening = book ? "right" : "page";
+  const margins = config.layout?.margins;
+  const mirrored = book && margins && typeof margins === "object" ? `@page :left { margin-left: ${cssLength(margins.right ?? "25mm")}; margin-right: ${cssLength(margins.left ?? "25mm")}; }` : "";
+  const front = config.layout?.page?.number?.visible === false ? "none" : pageContent(config, "lower-roman") || "none";
+  return `
+h1.chapter { break-before: ${opening}; font-size: 2.488em; line-height: 1.2; margin: 50pt 0 40pt; }
+h1.chapter .heading-number { display: block; font-size: 0.833em; margin-bottom: 20pt; }
+h2 { font-size: 1.44em; } h3 { font-size: 1.2em; } h4, h5, h6 { font-size: 1em; }
+h1 { string-set: mathmd-chapter content(text), mathmd-section content(text); }
+.table-of-contents { break-before: ${opening}; }
+.toc-title { font-size: 2.488em; line-height: 1.2; margin: 50pt 0 40pt; }
+.document-title { page: mathmd-title; break-after: ${opening}; padding-top: 60pt; }
+.document-title + *, .mathmd-mainmatter { counter-reset: page 1; }
+.mathmd-frontmatter { page: mathmd-front; }
+@page mathmd-title { @top-center { content: none; } @top-left { content: none; } @top-right { content: none; } @bottom-center { content: none; } }
+@page mathmd-front { @bottom-center { content: ${front}; } }
+@page :blank { @top-center { content: none; } @top-left { content: none; } @top-right { content: none; } @bottom-center { content: none; } }
+${book ? `@page :left { @top-center { content: none; } @top-left { content: ${pageNumber}; font-size: 9pt; } @top-right { content: string(mathmd-chapter, first); font-size: 9pt; font-style: italic; } }
+@page :right { @top-center { content: none; } @top-left { content: string(mathmd-section, first); font-size: 9pt; font-style: italic; } @top-right { content: ${pageNumber}; font-size: 9pt; } }
+@page mathmd-front:left { @top-left { content: ${front}; } }
+@page mathmd-front:right { @top-right { content: ${front}; } }
+${mirrored}` : ""}
+@page mathmd-front:blank { @top-left { content: none; } @top-right { content: none; } @bottom-center { content: none; } }`;
 }
 
 export function pdfHtml(html: string, config: Record<string, any>, baseDirectory: string): string {
@@ -142,10 +187,11 @@ h1, h2 { string-set: mathmd-section content(text); }
 .mathmd-line .mathmd-footnote { white-space: normal; text-align-last: auto; text-indent: 0; word-spacing: normal; }
 .mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-size: 0.7em; vertical-align: super; line-height: 0; }
 .mathmd-footnote::footnote-marker { content: counter(footnote) ". "; }
+${chapterCss(config, pageNumber)}
 </style>`;
   // The title is not a section: keep it out of the PDF outline, the tag tree's headings, and the running head.
   const titled = html.replace(/<h1 class="document-title-heading">([\s\S]*?)<\/h1>/, "<div class=\"document-title-heading\">$1</div>");
-  const prepared = bindPageStyleMarkers(inlineFootnotes(titled));
+  const prepared = wrapMatter(bindPageStyleMarkers(inlineFootnotes(titled))).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
   return embedLocalImages(prepared.replace("</head>", css + "</head>"), baseDirectory);
 }
 
@@ -195,28 +241,66 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
   const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
   if (error) throw new Error("Vivliostyle pagination failed: " + error);
   await page.evaluate(() => document.fonts.ready);
-  await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"));
+  await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"), result.config.layout?.class === "book");
+  if (result.config.layout?.class === "report" || result.config.layout?.class === "book") await numberTocEntries(page);
 }
 
 // Page styles follow LaTeX's \pagestyle: a marker switches the style from its page onward.
-async function applyPageStyles(page: Page, initial: string): Promise<void> {
-  await page.evaluate((initialStyle) => {
+// A book's running heads sit in the top corners and replace the page number at the bottom,
+// except on a chapter's opening page, which is plain as with LaTeX's \chapter.
+async function applyPageStyles(page: Page, initial: string, book: boolean): Promise<void> {
+  await page.evaluate(({ initialStyle, book }) => {
     let style = initialStyle;
     for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
       const markers = container.querySelectorAll<HTMLElement>(".mathmd-pagestyle");
       if (markers.length) style = markers[markers.length - 1].getAttribute("data-name") ?? style;
       if (!["empty", "plain", "headings"].includes(style)) style = "plain";
-      container.setAttribute("data-mathmd-page-style", style);
-      const header = container.querySelector<HTMLElement>("[data-vivliostyle-page-margin-box=top-center]");
+      const pageStyle = book && style === "headings" && container.querySelector("h1.chapter, .toc-title") ? "plain" : style;
+      container.setAttribute("data-mathmd-page-style", pageStyle);
+      const headers = container.querySelectorAll<HTMLElement>("[data-vivliostyle-page-margin-box=top-center], [data-vivliostyle-page-margin-box=top-left], [data-vivliostyle-page-margin-box=top-right]");
       const footer = container.querySelector<HTMLElement>("[data-vivliostyle-page-margin-box=bottom-center]");
-      if (header && style !== "headings") header.style.visibility = "hidden";
-      if (footer && style === "empty") footer.style.visibility = "hidden";
+      if (pageStyle !== "headings") for (const header of headers) header.style.visibility = "hidden";
+      if (footer && (pageStyle === "empty" || book && pageStyle === "headings")) footer.style.visibility = "hidden";
     }
-  }, initial);
+  }, { initialStyle: initial, book });
 }
 
-async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
-  return page.evaluate(() => {
+// Vivliostyle's target-counter() keeps the reset value of the page counter for every heading after a reset,
+// so a report or book, which restarts page numbers after the title and the front matter, fills them in itself.
+async function numberTocEntries(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    // No named functions here: the test runner's transpiler would wrap them in a helper the page does not have.
+    const numerals = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]] as const;
+    const numbers = new Map<string, string>();
+    let value = 0;
+    let afterTitle = false;
+    let mainmatter = false;
+    for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
+      value++;
+      const area = container.querySelector<HTMLElement>("[data-vivliostyle-page-area]");
+      const filled = Boolean(area?.textContent?.trim() || area?.querySelector("svg, img, table"));
+      // The element after the title and the main matter each restart the count on the page where they begin.
+      if (afterTitle && filled) { value = 1; afterTitle = false; }
+      if (!mainmatter && container.querySelector(".mathmd-mainmatter")) { value = 1; mainmatter = true; }
+      if (container.querySelector(".document-title")) afterTitle = true;
+      let label = String(value);
+      if (container.querySelector(".mathmd-frontmatter") && !mainmatter) {
+        label = "";
+        let rest = value;
+        for (const [amount, digits] of numerals) for (; rest >= amount; rest -= amount) label += digits;
+      }
+      for (const element of container.querySelectorAll<HTMLElement>("[id]")) if (!numbers.has(element.id)) numbers.set(element.id, label);
+    }
+    for (const link of document.querySelectorAll<HTMLElement>("a[data-mathmd-toc-target]")) {
+      const number = numbers.get(link.getAttribute("data-mathmd-toc-target") ?? "");
+      const counter = link.querySelector<HTMLElement>("[data-vivliostyle-target-counter]");
+      if (number && counter) counter.textContent = number;
+    }
+  });
+}
+
+async function readLayoutDiagnostics(page: Page, book = false): Promise<LayoutDiagnostic[]> {
+  return page.evaluate((book) => {
     const diagnostics: Array<{ code: string; message: string }> = [];
     for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
       const area = container.querySelector<HTMLElement>("[data-vivliostyle-page-area]");
@@ -229,9 +313,9 @@ async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
           diagnostics.push({ code: "LAYOUT_OVERFLOW", message: `${element.tagName.toLowerCase()} exceeds the page content area.` });
         }
       }
-      const blocks = [...area.querySelectorAll<HTMLElement>("body > *, [data-vivliostyle-column] > * > *")].filter((element) => {
+      const blocks = [...area.querySelectorAll<HTMLElement>("body > *, [data-vivliostyle-column] > * > *, .mathmd-matter > *")].filter((element) => {
         const rect = element.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && !element.closest(".mathmd-footnote");
+        return rect.width > 0 && rect.height > 0 && !element.closest(".mathmd-footnote") && !element.classList.contains("mathmd-matter");
       });
       for (let i = 0; i < blocks.length; i++) {
         const a = blocks[i].getBoundingClientRect();
@@ -241,10 +325,12 @@ async function readLayoutDiagnostics(page: Page): Promise<LayoutDiagnostic[]> {
           if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) diagnostics.push({ code: "LAYOUT_OVERLAP", message: "Block elements overlap on a page." });
         }
       }
-      if (!area.textContent?.trim() && !area.querySelector("svg, img, table")) diagnostics.push({ code: "EMPTY_PAGE", message: "A blank page was generated." });
+      // A book leaves the left-hand page before a chapter blank on purpose.
+      const intended = book && container.getAttribute("data-vivliostyle-page-side") === "left";
+      if (!intended && !area.textContent?.trim() && !area.querySelector("svg, img, table")) diagnostics.push({ code: "EMPTY_PAGE", message: "A blank page was generated." });
     }
     return diagnostics;
-  });
+  }, book);
 }
 
 async function withPaginatedPage<T>(result: CompileResult, sourceFile: string, action: (page: Page) => Promise<T>): Promise<T> {
@@ -271,7 +357,7 @@ function fontDiagnostics(): LayoutDiagnostic[] {
 
 export async function inspectLayout(result: CompileResult, sourceFile: string): Promise<LayoutDiagnostic[]> {
   const fonts = fontDiagnostics();
-  return [...fonts, ...await withPaginatedPage(result, sourceFile, readLayoutDiagnostics)];
+  return [...fonts, ...await withPaginatedPage(result, sourceFile, (page) => readLayoutDiagnostics(page, result.config.layout?.class === "book"))];
 }
 
 function authorNames(author: unknown): string[] {
@@ -293,7 +379,7 @@ async function writeMetadata(output: string, config: Record<string, any>): Promi
 export async function renderPdf(result: CompileResult, output: string, sourceFile: string): Promise<void> {
   const fonts = fontDiagnostics();
   await withPaginatedPage(result, sourceFile, async (page) => {
-    for (const diagnostic of [...fonts, ...await readLayoutDiagnostics(page)]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
+    for (const diagnostic of [...fonts, ...await readLayoutDiagnostics(page, result.config.layout?.class === "book")]) result.diagnostics.warning(diagnostic.code, diagnostic.message);
     await page.pdf({ path: output, preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false, outline: true, tagged: true });
   });
   if (!fs.existsSync(output)) throw new Error("Chromium did not create the PDF output.");
