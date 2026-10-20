@@ -414,6 +414,13 @@ test("numbers equations inside Callouts in document order with the surrounding c
   assert.match(result.html, /href="#eq:b">\(1\.2\)<\/a> .*<mtext href="#eq:c">\(1\.3\)<\/mtext>.* <a href="#eq:d">\(2\.1\)<\/a>/s);
 });
 
+test("resolves TeX references to equations later in the document", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    class: report\n---\n# One\n\nSee $\\eqref{eq:late}$ and $\\ref{eq:inside}$.\n\n> [!theorem]\n> $$a \\label{eq:inside}$$\n\n# Two\n\n$$b \\label{eq:late}$$\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<mtext href="#eq:late">\(2\.1\)<\/mtext>/);
+  assert.match(result.html, /<mtext href="#eq:inside">1\.1<\/mtext>/);
+});
+
 test("keeps structure directives inside a Callout literal", () => {
   const result = compile("> [!remark]\n> <appendix />\n\n# One\n");
   assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["NESTED_STRUCTURE_DIRECTIVE"]);

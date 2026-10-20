@@ -265,7 +265,8 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
 }
 
 // Display equations are numbered with the line pass's outline, which is at the heading state of the text being processed.
-function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext): { text: string; values: Map<string, string> } {
+// `display: false` or `inline: false` skips that kind of math, so inline math can wait until every equation label is known.
+function protectMath(source: string, config: Config, diagnostics: Diagnostics, context: RenderContext, kinds: { display?: boolean; inline?: boolean } = {}): { text: string; values: Map<string, string> } {
   const { ids, references, equationNumbers } = context;
   const outline = context.outline;
   const values = new Map<string, string>();
@@ -289,7 +290,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   const display = String(config.layout.equation.display ?? "({equation.arabic})");
   // \eqref and \ref print the number alone, like LaTeX's \theequation: the display format from its first placeholder to its last.
   const bareNumber = display.slice(display.indexOf("{"), display.lastIndexOf("}") + 1);
-  let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
+  let text = kinds.display === false ? source : source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
     try {
       const sourceRange = mathSourceOffset(context, source, offset, match);
       if (/\\\\\s*$/.test(body)) diagnostics.warning("TRAILING_MATH_BREAK", "A trailing math line break was removed.");
@@ -331,12 +332,13 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
       return put("<div class=\"math-block math-error\">[math error]</div>");
     }
   });
+  if (kinds.inline === false) return { text, values };
   text = text.replace(/\$([^$\n]+)\$/g, (match: string, body: string, offset: number, whole: string) => {
     try {
       const sourceRange = mathSourceOffset(context, source, offset, match);
       const rendered = renderInlineMath(resolveTexReferences(expandMacros(body, config))).html;
       // Browsers may break on either side of the rendered formula, so a word joiner keeps closing punctuation with it.
-      const joiner = NO_BREAK_BEFORE.test(whole.charAt(offset + match.length)) ? "⁠" : "";
+      const joiner = NO_BREAK_BEFORE.test(whole.charAt(offset + match.length)) ? "\u2060" : "";
       return put(rendered.replace("<span class=\"math-render\"", "<span class=\"math-render\"" + inspectorAttributes(context, "inline", body, sourceRange.start, sourceRange.end)) + joiner);
     }
     catch (error) { diagnostics.error("MATH_RENDER", String(error)); return put("<span class=\"math-error\">[math error]</span>"); }
@@ -454,7 +456,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     const pending = output.slice(processed).join("\n");
     // Never split a comment or a display equation; numbering waits for the next flush instead.
     if ((pending.match(/<!--/g) ?? []).length !== (pending.match(/-->/g) ?? []).length || (pending.match(/\$\$/g) ?? []).length % 2) return;
-    const math = protectMath(pending.replace(/<!--[\s\S]*?-->/g, (comment) => token(comment)), config, diagnostics, context);
+    const math = protectMath(pending.replace(/<!--[\s\S]*?-->/g, (comment) => token(comment)), config, diagnostics, context, { inline: false });
     for (const [key, value] of math.values) mathValues.set(key, value);
     output.splice(processed, output.length - processed, math.text);
     processed = output.length;
@@ -542,7 +544,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   flushMath();
   if (processed < output.length) {
     // An unclosed comment or display equation: process the rest as it stands.
-    const math = protectMath(output.splice(processed).join("\n"), config, diagnostics, context);
+    const math = protectMath(output.splice(processed).join("\n").replace(/<!--[\s\S]*?-->/g, (comment) => token(comment)), config, diagnostics, context, { inline: false });
     for (const [key, value] of math.values) mathValues.set(key, value);
     output.push(math.text);
   }
@@ -556,8 +558,9 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     diagnostics.warning("UNRESOLVED_FOOTNOTE", "Footnote '" + label + "' is not defined.");
     return token("<b class=\"diagnostic-missing\">[^" + escapeHtml(label) + "]</b>");
   });
-  for (const [key, value] of mathValues) replacements.set(key, value);
-  return { text: commentSafeSource, replacements };
+  const inline = protectMath(commentSafeSource, config, diagnostics, context, { display: false });
+  for (const [key, value] of [...mathValues, ...inline.values]) replacements.set(key, value);
+  return { text: inline.text, replacements };
 }
 
 function renderMarkdownBody(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics): string {
