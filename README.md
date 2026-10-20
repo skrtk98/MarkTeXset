@@ -11,7 +11,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 - **Math**: inline `$...$` and display `$$...$$` math rendered by MathJax as SVG with accessible MathML, numbered multi-line equations, `\label` / `\ref` / `\eqref`, user-defined macros and operators, and commutative diagrams in `tikzcd` blocks.
 - **Theorem environments**: Callouts such as `> [!theorem]` with configurable titles, counters, and styles (`plain`, `definition`, `remark`, `proof`, or a custom class).
 - **Document structure**: numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables.
-- **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files.
+- **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files. An empty link such as `[](#thm:main)` prints the target's number in a configurable format, such as "Theorem 3" or "Section 2.1".
 - **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.

@@ -325,7 +325,21 @@ Callout の `title` は YAML の文字列を CommonMark のインライン構文
 番号を自動表示する場合は[](#eq:quadratic)。
 ```
 
-明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。式・図・表は `layout.equation.reference`、`layout.figure.reference`、`layout.table.reference` の書式で、見出しは見出しの文字列で生成する。数式内の `\eqref` と `\ref` は LaTeX と同じく番号だけ（`(1)` と `1`）を表示する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
+明示テキストはそのまま表示し、空テキストは参照先の種類に応じて生成する。式・図・表は `layout.equation.reference`、`layout.figure.reference`、`layout.table.reference` の書式で生成する。見出しは `layout.heading.reference` にそのレベルの書式があり、番号の付く見出しであればその書式で、それ以外は見出しの文字列で生成する。Callout は `layout.callouts.<環境>.reference` があればその書式で、なければ展開した title で生成する。
+
+```yaml
+layout:
+  heading:
+    reference:
+      h1: "Section {h1.arabic}"
+      h2: "Section {h1.arabic}.{h2.arabic}"
+  callouts:
+    theorem:
+      title: "**Theorem {theorem.arabic}.**"
+      reference: "Theorem {theorem.arabic}"
+```
+
+`layout.heading.reference` は `h1`〜`h3` の書式を持つ map で、プレースホルダーは見出し番号の書式と同じものを使う。既定値はなく、未指定のレベルは見出しの文字列を表示する。Callout の `reference` は title と同じカウンタープレースホルダーを使い、Markdown として解釈せずそのまま文字列として表示する。title にカウンターのない（番号の付かない）環境の `reference` にカウンターがあればエラー `UNNUMBERED_CALLOUT_REFERENCE` とし、title を表示する。数式内の `\eqref` と `\ref` は LaTeX と同じく番号だけ（`(1)` と `1`）を表示する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
 
 引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。numeric の参考文献一覧は標準箇条書きマーカーを使わず、`[1] Title`、`[2] Title` のラベルとハンギングインデントで表示する。既定は `References` / level 2。
 
