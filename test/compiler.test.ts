@@ -237,7 +237,7 @@ test("applies attributes to a Callout header without a title", () => {
 
 test("falls back unsupported phase-three languages and rejects invalid counter placeholders", () => {
   const diagnostics = new Diagnostics();
-  loadConfig("---\nmathmd:\n  meta:\n    language: fr\n  layout:\n    class: book\n    callouts:\n      theorem:\n        title: \"Theorem {unknown.binary}\"\n---\ntext", "document.md", diagnostics);
+  loadConfig("---\nmathmd:\n  meta:\n    language: fr\n  layout:\n    class: memoir\n    callouts:\n      theorem:\n        title: \"Theorem {unknown.binary}\"\n---\ntext", "document.md", diagnostics);
   const codes = diagnostics.items.map((item) => item.code);
   assert.ok(codes.includes("UNSUPPORTED_LANGUAGE_FALLBACK"));
   assert.ok(codes.includes("UNSUPPORTED_CLASS"));
@@ -337,6 +337,50 @@ test("an appendix restarts top-level headings and letters them", () => {
   assert.deepEqual(result.diagnostics.items, []);
   assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. One</h1>", "<h2>1.1. Sub</h2>", "<h1>A. Proofs</h1>", "<h2>A.1. Details</h2>", "<h1>B. More</h1>"]);
   assert.match(result.html, /Theorem A\.1\./);
+});
+
+test("report and book number chapters, and figures, tables, and equations within them", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-chapters-"));
+  fs.writeFileSync(path.join(directory, "image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>");
+  const body = "<maketoc />\n\n# Intro {#ch:intro}\n\n## Scope\n\n$$x \\label{eq:x}$$\n\n![Pic](image.svg){#fig:a}\n\n# Method\n\n$$y \\label{eq:y}$$\n\n<appendix />\n\n# Proofs\n\n## Lemma\n\n[](#eq:y) [](#fig:a)\n";
+  for (const documentClass of ["report", "book"]) {
+    const result = compile("---\nmathmd:\n  layout:\n    class: " + documentClass + "\n---\n" + body, path.join(directory, "document.md"));
+    assert.deepEqual(result.diagnostics.items, [], documentClass);
+    assert.match(result.html, /<body class="mathmd-class-[a-z]+">/);
+    assert.match(result.html, /<h1 id="ch:intro" class="chapter" data-mathmd-toc-number="1"><span class="heading-number">Chapter 1<\/span> Intro<\/h1>/);
+    assert.match(result.html, /<h2[^>]*>1\.1\. Scope<\/h2>/);
+    assert.match(result.html, /<span class="heading-number">Appendix A<\/span> Proofs/);
+    assert.match(result.html, /<h2[^>]*>A\.1\. Lemma<\/h2>/);
+    assert.match(result.html, />\(1\.1\)<\/span>/);
+    assert.match(result.html, />\(2\.1\)<\/span>/);
+    assert.match(result.html, /Figure 1\.1\. Pic/);
+    assert.match(result.html, /href="#eq:y">\(2\.1\)<\/a> <a href="#fig:a">Figure 1\.1<\/a>/);
+    assert.match(result.html, /<a href="#ch:intro">1 Intro<\/a>/, "the table of contents lists the bare chapter number");
+    assert.match(result.html, /<a href="#mathmd-section-\d+">A Proofs<\/a>/);
+  }
+});
+
+test("Japanese chapter classes follow ltjsreport and ltjsbook", () => {
+  const result = compile("---\nmathmd:\n  meta:\n    language: ja\n  layout:\n    class: report\n---\n<maketoc />\n\n# 序論\n\n$$x \\label{eq:x}$$\n\n[](#eq:x)\n\n<appendix />\n\n# 証明\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<span class="heading-number">第1章<\/span> 序論/);
+  assert.match(result.html, /<span class="heading-number">付録A<\/span> 証明/);
+  assert.match(result.html, />第1章 序論<\/a>/, "Japanese tables of contents keep the chapter label");
+  assert.match(result.html, />式 \(1\.1\)<\/a>/);
+});
+
+test("book front and back matter chapters are unnumbered, and matter directives need the book class", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    class: book\n---\n<frontmatter />\n\n# Preface\n\n## Thanks\n\n<mainmatter />\n\n# First\n\n<backmatter />\n\n# Index\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<h1 class="chapter">Preface<\/h1>/);
+  assert.match(result.html, /<span class="heading-number">Chapter 1<\/span> First/);
+  assert.match(result.html, /<h1 class="chapter">Index<\/h1>/);
+  assert.match(result.html, /<div class="mathmd-directive mathmd-frontmatter"><\/div>/);
+  const report = compile("---\nmathmd:\n  layout:\n    class: report\n---\n<frontmatter />\n\n# A\n\n<appendix />\n\n# B\n\n<appendix />\n\n# C\n");
+  assert.deepEqual(report.diagnostics.items.map((item) => item.code).sort(), ["BOOK_ONLY_DIRECTIVE", "DUPLICATE_APPENDIX"]);
+  assert.match(report.html, /Chapter 1<\/span> A/, "the matter directives have no effect outside the book class");
+  assert.match(report.html, /Appendix B<\/span> C/, "a second <appendix /> does not restart the lettering");
+  assert.match(compile("---\nmathmd:\n  layout:\n    class: article\n---\n# A\n").html, /<h1>1\. A<\/h1>/);
 });
 
 test("prints heading and Callout references with their reference formats", () => {

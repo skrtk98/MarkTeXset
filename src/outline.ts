@@ -50,8 +50,6 @@ export function htmlOutline(html: string): OutlineEvent[] {
   return events;
 }
 
-const BOOK_CLASSES = new Set(["book", "report"]);
-
 /**
  * Replays the document structure up to a position so counters can be numbered relative to headings.
  * A counter whose numbering template is scoped, as in `{h1 > figure.arabic}`, restarts whenever a heading
@@ -86,12 +84,13 @@ export class Outline {
     const heading = this.config.layout.heading;
     if (unnumbered || !heading.numbered || level > Number(heading.numberingDepth ?? 3)) return false;
     // \frontmatter and \backmatter chapters are unnumbered.
-    return !(level === 1 && BOOK_CLASSES.has(String(this.config.layout.class)) && this.matter !== "main");
+    return !(level === 1 && this.config.layout.class === "book" && this.matter !== "main");
   }
 
   apply(event: OutlineEvent): void {
     if (event.kind === "directive") {
-      if (event.name === "appendix") { this.appendix = true; this.headings.fill(0); }
+      // Only the first <appendix /> counts, as with LaTeX's \appendix.
+      if (event.name === "appendix") { if (!this.appendix) this.headings.fill(0); this.appendix = true; }
       else this.matter = event.name === "frontmatter" ? "front" : event.name === "mainmatter" ? "main" : "back";
       return;
     }

@@ -530,9 +530,15 @@ function renderMarkdownBody(source: string, config: Config, context: RenderConte
   return content;
 }
 
+function isChapterClass(config: Config): boolean {
+  return config.layout.class === "report" || config.layout.class === "book";
+}
+
 function addHeadingNumbers(html: string, config: Config, references: Map<string, string>): string {
   const outline = new Outline(config);
   const formats = config.layout.heading.formats ?? {};
+  const chapters = isChapterClass(config);
+  const japanese = /^ja(?:-|$)/i.test(String(config.meta.language));
   return html.replace(/<div class="mathmd-directive mathmd-([a-z]+)"><\/div>|<h([1-6])([^>]*)>([\s\S]*?)<\/h\2>/g, (_m, directive: string | undefined, levelText: string, existingAttrs: string, content: string) => {
     if (directive) {
       if (STRUCTURE_DIRECTIVES.has(directive)) outline.apply({ line: 0, kind: "directive", name: directive as StructureDirective });
@@ -559,6 +565,7 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
       }
     }
     if (content.startsWith(marker)) content = content.slice(marker.length);
+    if (chapters && level === 1) classes = ["chapter", classes].filter(Boolean).join(" ");
     const attrs = existingAttrs + renderAttributes(id, classes, customAttributes);
     // Like LaTeX's \section*, an unnumbered heading leaves every counter alone.
     if (unnumbered) {
@@ -566,12 +573,18 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
     }
     if (!outline.numbers(level, false)) return "<h" + level + attrs + ">" + content + "</h" + level + ">";
     outline.apply({ line: 0, kind: "heading", level, unnumbered: false });
-    const format = String(formats["h" + level] ?? "");
+    const format = String((level === 1 && outline.appendix ? config.layout.heading.appendix : formats["h" + level]) ?? "");
     // A scoped placeholder such as {h1 > h2.arabic} prints its last counter.
     const formatNumber = (template: string) => template.replace(/\{(?:[^{}>]*>)*\s*h([1-6])\.([A-Za-z]+)\s*\}/g, (_x: string, n: string, style: string) => outline.heading(Number(n), style));
     const number = formatNumber(format);
     const reference = config.layout.heading.reference?.["h" + level];
     if (id && typeof reference === "string") references.set(id, formatNumber(reference));
+    if (chapters && level === 1) {
+      // The chapter label goes on its own line; the table of contents lists the bare number in English, as LaTeX does.
+      const style = format.match(/\{(?:[^{}>]*>)*\s*h1\.([A-Za-z]+)\s*\}/)?.[1] ?? "arabic";
+      const tocNumber = japanese ? number : outline.heading(1, style);
+      return "<h" + level + attrs + " data-mathmd-toc-number=\"" + escapeHtml(tocNumber) + "\"><span class=\"heading-number\">" + escapeHtml(number) + "</span> " + content + "</h" + level + ">";
+    }
     return "<h" + level + attrs + ">" + escapeHtml(number) + " " + content + "</h" + level + ">";
   });
 }
@@ -684,7 +697,9 @@ function renderToc(html: string, config: Config): string {
     if (match[2].includes("document-title-heading")) return "";
     if (Number(match[1]) > tocDepth) return "";
     const id = match[2].match(/\sid=\"([^\"]+)\"/)?.[1];
-    const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + match[3] + "</a>" : match[3];
+    const tocNumber = match[2].match(/\sdata-mathmd-toc-number="([^"]*)"/)?.[1];
+    const text = tocNumber === undefined ? match[3] : match[3].replace(/^<span class="heading-number">[\s\S]*?<\/span>\s*/, tocNumber + " ");
+    const title = id ? "<a href=\"#" + escapeHtml(id) + "\">" + text + "</a>" : text;
     return "<li class=\"toc-level-" + match[1] + "\">" + title + "</li>";
   }).join("");
   return "<nav class=\"table-of-contents\"><h2 class=\"toc-title\">" + escapeHtml(String(config.layout.heading.toc)) + "</h2><ul class=\"toc-list\">" + items + "</ul></nav>";
@@ -749,6 +764,10 @@ export function compile(source: string, file = "document.md", options: CompileOp
   const tocCount = (extractedStyles.body.match(/<maketoc\s*\/>/g) ?? []).length;
   const titleCount = (extractedStyles.body.match(/<maketitle\s*\/>/g) ?? []).length;
   const referencesCount = (extractedStyles.body.match(/<references\s*\/>/g) ?? []).length;
+  for (const name of ["frontmatter", "mainmatter", "backmatter"]) {
+    if (loaded.config.layout.class !== "book" && new RegExp("^<" + name + "\\s*/\\s*>$", "m").test(extractedStyles.body)) diagnostics.error("BOOK_ONLY_DIRECTIVE", "<" + name + " /> is only available in the book class.");
+  }
+  if ((extractedStyles.body.match(/^<appendix\s*\/\s*>$/gm) ?? []).length > 1) diagnostics.warning("DUPLICATE_APPENDIX", "Only the first <appendix /> starts the appendix.");
   if (tocCount > 1) diagnostics.warning("DUPLICATE_TOC", "Only the first <maketoc /> is used.");
   if (titleCount > 1) diagnostics.warning("DUPLICATE_TITLE", "Only the first <maketitle /> is used.");
   if (referencesCount > 1) diagnostics.warning("DUPLICATE_REFERENCES", "Only the first <references /> is used.");
@@ -797,7 +816,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     const offset = candidates.map((value) => source.indexOf(value)).find((value) => value >= 0) ?? 0;
     diagnostic.location = locationFor(source, file, offset, Math.min(source.length, offset + Math.max(1, candidates[0]?.length ?? 1)));
   }
-  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:" + SERIF_STACK + ";max-width:180mm;margin:25mm auto;line-height:1.6}code,pre,kbd,samp{font-family:" + MONO_STACK + "}p,li,dd,.callout-body{text-align:justify;hyphens:auto;text-wrap:pretty}:lang(ja){line-break:strict;text-autospace:normal;text-spacing-trim:normal}" + MATH_GLUE_CSS + ".callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font-size:.9em;font-family:" + MONO_STACK + "}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body>" + html + "</body></html>", config: loaded.config, diagnostics, pendingResources: [...pendingResources] };
+  return { html: "<!doctype html><html lang=\"" + loaded.config.meta.language + "\"><head><meta charset=\"utf-8\"><style>body{font-family:" + SERIF_STACK + ";max-width:180mm;margin:25mm auto;line-height:1.6}code,pre,kbd,samp{font-family:" + MONO_STACK + "}p,li,dd,.callout-body{text-align:justify;hyphens:auto;text-wrap:pretty}:lang(ja){line-break:strict;text-autospace:normal;text-spacing-trim:normal}" + MATH_GLUE_CSS + "h1.chapter .heading-number{display:block;margin-bottom:.5em}.callout{border-left:4px solid #888;padding:.5em 1em;margin:1em 0;break-inside:avoid}.callout-title{font-weight:bold}.qed{display:block;text-align:right;margin-top:.25em}.diagnostic-missing{color:red;font-weight:bold}.table-of-contents{border:1px solid #ddd;padding:1em;break-inside:avoid}.toc-title{margin-top:0}.toc-list{list-style:none;padding-left:0}.toc-list li{margin:.15em 0}.toc-level-1{padding-left:0}.toc-level-2{padding-left:1.5em}.toc-level-3{padding-left:3em}.toc-level-4{padding-left:4.5em}.toc-level-5{padding-left:6em}.toc-level-6{padding-left:7.5em}.mathmd-table{border-collapse:collapse;max-width:100%;break-inside:avoid}.mathmd-table th,.mathmd-table td{padding:.25em .5em}.figure{margin:1em auto;text-align:center;break-inside:avoid}.figure img{max-width:100%;height:auto}.figure-caption{margin-top:.25em}.mathmd-pagebreak{break-before:page;page-break-before:always;height:0}.task-list{list-style:none;padding-left:0}.task-list-item{list-style:none}.task-list-item input{margin-right:.4em}.code-block{margin:1em 0;break-inside:avoid}.code-block pre{margin:0;overflow-x:auto;white-space:pre}.code-header{display:flex;justify-content:space-between;gap:1em;padding:.35em .7em;background:#f2f2f2;border:1px solid #ddd;border-bottom:0;font-size:.9em;font-family:" + MONO_STACK + "}.code-content{display:block;padding:.7em;background:#fafafa;border:1px solid #ddd;overflow-x:auto}.references{list-style:none;padding-left:0;font-size:.9em}.references li{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}.references li::marker{content:''}.references-numeric li{padding-left:2em;text-indent:-2em}.reference-author{display:inline-block}.tikzcd{break-inside:avoid;overflow-x:auto;margin:1em 0}.tikzcd-table{border-collapse:separate;border-spacing:2em 1em;margin:0 auto}.tikzcd-table td{min-width:2em;text-align:center;vertical-align:middle}.tikzcd-arrows{display:inline-block;margin-left:.5em;font-size:1.1em}.document-title{text-align:center;margin-bottom:2em}.author{display:flex;justify-content:center;align-items:baseline;gap:.5em;flex-wrap:wrap}.math-block{display:grid;width:100%;column-gap:.35em;align-items:baseline}.equation-row{display:contents}.equation-content{white-space:nowrap}.equation-number{text-align:right;white-space:nowrap}.math-anchor-center{text-align:center}.math-anchor-left{text-align:left}.math-anchor-right{text-align:right}.math-anchor-gap{min-width:1.5em}.mathml,mjx-assistive-mml{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important}</style></head><body class=\"mathmd-class-" + escapeHtml(String(loaded.config.layout.class)) + "\">" + html + "</body></html>", config: loaded.config, diagnostics, pendingResources: [...pendingResources] };
 }
 
 export function compileFile(file: string, options: CompileOptions = {}): CompileResult {

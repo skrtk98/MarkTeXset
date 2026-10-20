@@ -103,6 +103,33 @@ const JAPANESE_DEFAULTS = {
   },
 };
 
+// report and book follow LaTeX's chapter classes: # is a chapter, and figures, tables, and equations are numbered within it.
+const CHAPTER_DEFAULTS = {
+  citation: { heading: { text: "Bibliography", level: 1 } },
+  layout: {
+    heading: {
+      formats: { h1: "Chapter {h1.arabic}", h2: "{h1.arabic}.{h2.arabic}.", h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}." },
+      appendix: "Appendix {h1.arabic}",
+    },
+    figure: { display: "Figure {h1.arabic}.{h1 > figure.arabic}.", reference: "Figure {h1.arabic}.{h1 > figure.arabic}" },
+    table: { display: "Table {h1.arabic}.{h1 > table.arabic}.", reference: "Table {h1.arabic}.{h1 > table.arabic}" },
+    equation: { display: "({h1.arabic}.{h1 > equation.arabic})", reference: "({h1.arabic}.{h1 > equation.arabic})" },
+  },
+};
+
+// ltjsreport and ltjsbook.
+const JAPANESE_CHAPTER_DEFAULTS = {
+  citation: { heading: { text: "参考文献", level: 1 } },
+  layout: {
+    heading: { formats: { h1: "第{h1.arabic}章" }, appendix: "付録{h1.arabic}" },
+    figure: { display: "図 {h1.arabic}.{h1 > figure.arabic}", reference: "図 {h1.arabic}.{h1 > figure.arabic}" },
+    table: { display: "表 {h1.arabic}.{h1 > table.arabic}", reference: "表 {h1.arabic}.{h1 > table.arabic}" },
+    equation: { reference: "式 ({h1.arabic}.{h1 > equation.arabic})" },
+  },
+};
+
+export const DOCUMENT_CLASSES = new Set(["article", "report", "book"]);
+
 function merge(base: Record<string, any>, next: Record<string, any>): Record<string, any> {
   const result = clone(base);
   for (const [key, value] of Object.entries(next)) {
@@ -164,7 +191,7 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
   unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
   unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
-  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "toc", "h1", "h2", "h3", "formats", "reference"], "layout.heading", file, source, diagnostics);
+  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "toc", "h1", "h2", "h3", "formats", "reference", "appendix"], "layout.heading", file, source, diagnostics);
   unknownNested(value.layout?.heading?.formats, ["h1", "h2", "h3"], "layout.heading.formats", file, source, diagnostics);
   unknownNested(value.layout?.heading?.reference, ["h1", "h2", "h3"], "layout.heading.reference", file, source, diagnostics);
   unknownNested(value.layout?.counter, ["max-depth", "maxDepth"], "layout.counter", file, source, diagnostics);
@@ -196,8 +223,8 @@ function parseYaml(source: string, file: string, diagnostics: Diagnostics): Reco
 function validateValueShape(value: Record<string, any>, file: string, source: string, diagnostics: Diagnostics, root: boolean): void {
   addUnknownKeyDiagnostics(value, root ? ROOT_KEYS : IMPORT_KEYS, file, source, diagnostics);
   validateNestedKeys(value, file, source, diagnostics);
-  if (value.layout?.class !== undefined && value.layout.class !== "article") {
-    diagnostics.error("UNSUPPORTED_CLASS", "Only the article class is supported in phase 1.", locationFor(source, file, 0));
+  if (value.layout?.class !== undefined && !DOCUMENT_CLASSES.has(String(value.layout.class))) {
+    diagnostics.error("UNSUPPORTED_CLASS", "layout.class must be article, report, or book.", locationFor(source, file, 0));
   }
   if (value.layout?.size !== undefined && value.layout.size !== "A4") {
     diagnostics.error("UNSUPPORTED_PAGE_SIZE", "Only A4 is supported in phase 1.", locationFor(source, file, 0));
@@ -279,7 +306,7 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"], ["layout.table.display", layout.table?.display, "table"], ["layout.table.reference", layout.table?.reference, "table"]] as Array<[string, unknown, string]>) {
     if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set(counter === "page" ? [counter] : [counter, "h1", "h2", "h3", "h4", "h5", "h6"]));
   }
-  const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3"].map((name) => ["layout.heading." + name, layout.heading?.[name]]), ...Object.entries(layout.heading?.reference ?? {}).map(([name, format]) => ["layout.heading.reference." + name, format])];
+  const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3", "appendix"].map((name) => ["layout.heading." + name, layout.heading?.[name]]), ...Object.entries(layout.heading?.reference ?? {}).map(([name, format]) => ["layout.heading.reference." + name, format])];
   if (layout.heading?.reference !== undefined && !isRecord(layout.heading.reference)) diagnostics.error("INVALID_CONFIG_TYPE", "layout.heading.reference must be a mapping of h1, h2, and h3.", locationFor(source, file, 0));
   for (const [name, format] of headingFormats) if (format !== undefined && typeof format !== "string") diagnostics.error("INVALID_CONFIG_TYPE", name + " must be a string.", locationFor(source, file, 0));
   for (const [name, format] of headingFormats) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
@@ -414,7 +441,15 @@ export function loadConfig(source: string, file: string, diagnostics: Diagnostic
   delete local.import;
   settings = merge(settings, local);
   const japanese = /^ja(?:-|$)/i.test(String(settings.meta?.language ?? ""));
-  const config = merge(japanese ? merge(DEFAULT_CONFIG, JAPANESE_DEFAULTS) : DEFAULT_CONFIG, settings);
+  let defaults = japanese ? merge(DEFAULT_CONFIG, JAPANESE_DEFAULTS) : DEFAULT_CONFIG;
+  const documentClass = String(settings.layout?.class ?? "article");
+  if (documentClass === "report" || documentClass === "book") {
+    defaults = merge(defaults, CHAPTER_DEFAULTS);
+    if (japanese) defaults = merge(defaults, JAPANESE_CHAPTER_DEFAULTS);
+    // LaTeX's book uses running heads; report uses plain page numbers.
+    if (documentClass === "book") defaults = merge(defaults, { layout: { page: { style: "headings" } } });
+  }
+  const config = merge(defaults, settings);
   normalizeConfig(config);
   return { config, body: frontmatter.body };
 }
@@ -433,6 +468,8 @@ function normalizeConfig(config: Config): void {
     h2: heading.h2 ?? heading.formats?.h2 ?? "{h1.arabic}.{h2.arabic}.",
     h3: heading.h3 ?? heading.formats?.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
   };
+  // The appendix numbers top-level headings with letters; without its own format it reuses h1's.
+  heading.appendix = heading.appendix ?? heading.formats.h1;
   config.layout.title.dateFormat = config.layout.title["date-format"] ?? config.layout.title.dateFormat ?? "yyyy-mm-dd";
   config.layout.counter.maxDepth = config.layout.counter.maxDepth ?? config.layout.counter["max-depth"] ?? 3;
 }
