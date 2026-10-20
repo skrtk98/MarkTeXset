@@ -44,7 +44,7 @@ export function htmlOutline(html: string): OutlineEvent[] {
   const events: OutlineEvent[] = [];
   for (const match of html.matchAll(/<h([1-6])((?:\s[^>]*)?)>(MATHMDNONUM )?|<div class="mathmd-directive mathmd-([a-z]+)"><\/div>/g)) {
     if (match[1]) {
-      if (!match[2].includes("document-title-heading")) events.push({ line: match.index, kind: "heading", level: Number(match[1]), unnumbered: Boolean(match[3]) });
+      if (!match[2].includes("document-title-heading") && !match[2].includes("data-mathmd-nested")) events.push({ line: match.index, kind: "heading", level: Number(match[1]), unnumbered: Boolean(match[3]) });
     } else if (STRUCTURE_DIRECTIVES.has(match[4])) events.push({ line: match.index, kind: "directive", name: match[4] as StructureDirective });
   }
   return events;

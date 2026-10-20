@@ -421,6 +421,15 @@ test("resolves TeX references to equations later in the document", () => {
   assert.match(result.html, /<mtext href="#eq:inside">1\.1<\/mtext>/);
 });
 
+test("headings inside a Callout are not numbered, listed, or treated as chapters", () => {
+  const result = compile("---\nmathmd:\n  layout:\n    class: report\n---\n<maketoc />\n\n# One\n\n> [!remark]\n> # Aside {#aside}\n> Text.\n\n# Two\n\n[](#aside)\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<h1 data-mathmd-nested="" id="aside">Aside<\/h1>/);
+  assert.match(result.html, /Chapter 2<\/span> Two/);
+  assert.doesNotMatch(result.html, /toc-level-1"><a href="#aside"/);
+  assert.match(result.html, /href="#aside">Aside<\/a>/);
+});
+
 test("keeps structure directives inside a Callout literal", () => {
   const result = compile("> [!remark]\n> <appendix />\n\n# One\n");
   assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["NESTED_STRUCTURE_DIRECTIVE"]);

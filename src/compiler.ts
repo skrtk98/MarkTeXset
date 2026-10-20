@@ -258,6 +258,8 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
   } finally {
     context.depth--;
   }
+  // Headings inside a Callout are not sections of the document: they get no number and no table of contents entry.
+  content = content.replace(/<h([1-6])(?=[\s>])/g, "<h$1 data-mathmd-nested=\"\"");
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
   const customStyle = style === "plain" && configuredStyle !== "plain" ? "callout-style-" + configuredStyle : "";
   const classAttribute = ["callout", "callout-" + style, customStyle, typeof definition.class === "string" ? definition.class : "", ...classes].filter(Boolean).map(escapeHtml).join(" ");
@@ -613,8 +615,9 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
     let id = "";
     let classes = "";
     let customAttributes: Record<string, string> = {};
-    const unnumbered = content.startsWith("MATHMDNONUM ");
-    if (unnumbered) content = content.slice("MATHMDNONUM ".length);
+    const nested = existingAttrs.includes("data-mathmd-nested");
+    const unnumbered = nested || content.startsWith("MATHMDNONUM ");
+    if (content.startsWith("MATHMDNONUM ")) content = content.slice("MATHMDNONUM ".length);
     if (content.startsWith("MATHMDATTR:")) {
       const attribute = content.match(/^MATHMDATTR:([^:]+):(.*)$/s);
       if (attribute) {
@@ -628,7 +631,7 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
       }
     }
     if (content.startsWith(marker)) content = content.slice(marker.length);
-    if (chapters && level === 1) classes = ["chapter", classes].filter(Boolean).join(" ");
+    if (chapters && level === 1 && !nested) classes = ["chapter", classes].filter(Boolean).join(" ");
     const attrs = existingAttrs + renderAttributes(id, classes, customAttributes);
     // Like LaTeX's \section*, an unnumbered heading leaves every counter alone.
     if (unnumbered) {
@@ -745,7 +748,7 @@ function identifyTocHeadings(html: string, config: Config, references: Map<strin
   const used = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
   let counter = 0;
   return html.replace(/<h([1-6])([^>]*)>/g, (match, level: string, attributes: string) => {
-    if (attributes.includes("document-title-heading") || Number(level) > config.layout.heading.tocDepth || /\sid="/.test(attributes)) return match;
+    if (attributes.includes("document-title-heading") || attributes.includes("data-mathmd-nested") || Number(level) > config.layout.heading.tocDepth || /\sid="/.test(attributes)) return match;
     let id: string;
     do id = "mathmd-section-" + ++counter; while (used.has(id));
     used.add(id);
@@ -757,7 +760,7 @@ function identifyTocHeadings(html: string, config: Config, references: Map<strin
 function renderToc(html: string, config: Config): string {
   const tocDepth = config.layout.heading.tocDepth;
   const items = [...html.matchAll(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g)].map((match) => {
-    if (match[2].includes("document-title-heading")) return "";
+    if (match[2].includes("document-title-heading") || match[2].includes("data-mathmd-nested")) return "";
     if (Number(match[1]) > tocDepth) return "";
     const id = match[2].match(/\sid=\"([^\"]+)\"/)?.[1];
     const tocNumber = match[2].match(/\sdata-mathmd-toc-number="([^"]*)"/)?.[1];
