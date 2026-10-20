@@ -228,6 +228,13 @@ test("applies heading and callout attributes and diagnoses unresolved references
   assert.match(result.html, /diagnostic-missing/);
 });
 
+test("applies attributes to a Callout header without a title", () => {
+  const result = compile("> [!remark] {#note}\n> Body\n\n[](#note)\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<div id="note" class="callout callout-plain">/);
+  assert.doesNotMatch(result.html, /\{#note\}/);
+});
+
 test("falls back unsupported phase-three languages and rejects invalid counter placeholders", () => {
   const diagnostics = new Diagnostics();
   loadConfig("---\nmathmd:\n  meta:\n    language: fr\n  layout:\n    class: book\n    callouts:\n      theorem:\n        title: \"Theorem {unknown.binary}\"\n---\ntext", "document.md", diagnostics);

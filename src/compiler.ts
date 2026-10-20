@@ -428,7 +428,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
         body.push(lines[j].replace(/^>\s?/, "")); j++;
       }
       let calloutTitle = callout[2] ?? "";
-      const calloutAttributes = calloutTitle.match(/\s+\{([^}]*)\}\s*$/);
+      const calloutAttributes = calloutTitle.match(/(?:^|\s+)\{([^}]*)\}\s*$/);
       const parsedCalloutAttributes = parseAttributes(calloutAttributes?.[1] ?? "", diagnostics);
       if (calloutAttributes) calloutTitle = calloutTitle.slice(0, calloutAttributes.index).trim();
       output.push(token(renderCallout(callout[1].trim(), [calloutTitle, ...body].join("\n"), config, context, parsedCalloutAttributes.id, parsedCalloutAttributes.classes, parsedCalloutAttributes.attributes, diagnostics)));
