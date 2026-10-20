@@ -52,12 +52,15 @@ const number = (attributes: string, name: string) => Number(attributes.match(new
 // Fragments that share most of their height belong to one visual line.
 function mergeVisualLines(lines: TextLine[]): TextLine[] {
   const merged: TextLine[] = [];
+  // Inline math splits a line into pieces; they are joined from left to right.
+  const pieces = new Map<TextLine, TextLine[]>();
   for (const line of [...lines].sort((a, b) => a.yMin - b.yMin || a.xMin - b.xMin)) {
     const height = line.yMax - line.yMin;
     const target = merged.find((other) => Math.min(other.yMax, line.yMax) - Math.max(other.yMin, line.yMin) >= 0.5 * Math.min(height, other.yMax - other.yMin));
-    if (!target) { merged.push({ ...line }); continue; }
-    const before = line.xMin < target.xMin;
-    target.text = before ? line.text + " " + target.text : target.text + " " + line.text;
+    if (!target) { const copy = { ...line }; merged.push(copy); pieces.set(copy, [line]); continue; }
+    const parts = [...pieces.get(target)!, line].sort((a, b) => a.xMin - b.xMin);
+    pieces.set(target, parts);
+    target.text = parts.map((part) => part.text).join(" ");
     target.xMin = Math.min(target.xMin, line.xMin);
     target.xMax = Math.max(target.xMax, line.xMax);
     target.yMin = Math.min(target.yMin, line.yMin);
