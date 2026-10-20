@@ -243,7 +243,8 @@ const BROWSER_SCRIPT = String.raw`
       line.className = "mathmd-line";
       var ratio = breaks[index].ratio;
       var css = "display:block;white-space:nowrap;text-align:justify;text-align-last:" + (index === fragments.length - 1 ? "start" : "justify") + ";text-indent:" + (index === 0 ? indent : "0") + ";";
-      if (ratio < 0 && index < fragments.length - 1) {
+      // As in TeX, the last line may shrink too when it was chosen slightly over the measure.
+      if (ratio < 0) {
         canvas.font = fontOf(p);
         css += "word-spacing:" + (ratio * canvas.measureText(" ").width / 3).toFixed(3) + "px;";
       }
