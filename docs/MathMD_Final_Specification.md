@@ -298,7 +298,7 @@ mathmd:
 <backmatter />
 ```
 
-`<appendix />` はすべてのクラスで使え、LaTeX の `\appendix` と同じく、以降の最上位の見出し（`article` では節、`report` / `book` では章）の番号を 1 に戻してアルファベット（`A`、`B`、…）にする。最上位の見出しの番号には `layout.heading.appendix` の書式を使い、下位の見出しや図・表・式の `{h1.*}` も `A` のように表示する。2 つ目以降の `<appendix />` は警告 `DUPLICATE_APPENDIX` とし、無視する。
+`<appendix />` はすべてのクラスで使え、LaTeX の `\appendix` と同じく、以降の最上位の見出し（`article` では節、`report` / `book` では章）の番号を 1 に戻してアルファベット（`A`、`B`、…）にする。最上位の見出しの番号には `layout.heading.appendix` の書式を使い、下位の見出しや図・表・式の `{h1.*}` も `A` のように表示する。2 つ目以降の `<appendix />` は警告 `DUPLICATE_APPENDIX` とし、無視する。これらの構造の制御要素は文書の最上位でだけ働き、Callout の中に書いた場合は警告 `NESTED_STRUCTURE_DIRECTIVE` とし、文字列のまま表示する。
 
 ## 5. Markdown と専用要素
 

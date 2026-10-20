@@ -507,6 +507,11 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
       continue;
     }
     const directive = line.match(/^<(pagebreak|maketoc|maketitle|references|appendix|frontmatter|mainmatter|backmatter)\s*\/\s*>$/);
+    if (directive && context.depth > 0 && STRUCTURE_DIRECTIVES.has(directive[1])) {
+      diagnostics.warning("NESTED_STRUCTURE_DIRECTIVE", "<" + directive[1] + " /> only works at the top level of the document, not inside a Callout.");
+      output.push(line);
+      continue;
+    }
     if (directive) {
       output.push(token("<div class=\"mathmd-directive mathmd-" + directive[1] + "\"></div>"));
       continue;

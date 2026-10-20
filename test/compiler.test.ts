@@ -414,6 +414,13 @@ test("numbers equations inside Callouts in document order with the surrounding c
   assert.match(result.html, /href="#eq:b">\(1\.2\)<\/a> .*<mtext href="#eq:c">\(1\.3\)<\/mtext>.* <a href="#eq:d">\(2\.1\)<\/a>/s);
 });
 
+test("keeps structure directives inside a Callout literal", () => {
+  const result = compile("> [!remark]\n> <appendix />\n\n# One\n");
+  assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["NESTED_STRUCTURE_DIRECTIVE"]);
+  assert.match(result.html, /&lt;appendix \/&gt;/);
+  assert.match(result.html, /<h1>1\. One<\/h1>/);
+});
+
 test("prints heading and Callout references with their reference formats", () => {
   const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
   const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
