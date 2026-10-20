@@ -542,9 +542,8 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
     }
     if (content.startsWith(marker)) content = content.slice(marker.length);
     const attrs = existingAttrs + renderAttributes(id, classes, customAttributes);
+    // Like LaTeX's \section*, an unnumbered heading leaves every counter alone.
     if (unnumbered) {
-      counters[level] = 0;
-      for (let i = level + 1; i <= 6; i++) counters[i] = 0;
       return "<h" + level + attrs + ">" + content + "</h" + level + ">";
     }
     if (!config.layout.heading.numbered || level > depth) return "<h" + level + attrs + ">" + content + "</h" + level + ">";

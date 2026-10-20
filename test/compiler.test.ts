@@ -307,6 +307,11 @@ test("allows rich Callout contents and nested Callouts", () => {
   assert.match(result.html, /Nested note/);
 });
 
+test("unnumbered headings do not advance or reset heading counters", () => {
+  const result = compile("# A\n\n## A1\n\n#: B\n\n## B1\n\n# C\n");
+  assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. A</h1>", "<h2>1.1. A1</h2>", "<h1>B</h1>", "<h2>1.2. B1</h2>", "<h1>2. C</h1>"]);
+});
+
 test("prints heading and Callout references with their reference formats", () => {
   const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
   const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
