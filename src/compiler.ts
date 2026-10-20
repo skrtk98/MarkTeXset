@@ -28,6 +28,7 @@ interface RenderContext {
   counters: Map<string, number>;
   ids: Set<string>;
   references: Map<string, string>;
+  unnumberedReferences: Set<string>;
   figures: number;
   sourceFile: string;
   sourceText: string;
@@ -242,10 +243,17 @@ function renderCallout(name: string, body: string, config: Config, context: Rend
     context.counters.set(name, current);
     renderedTitle = counterText(title, name, current);
   }
+  // Only a title with a counter numbers the environment, so a reference with one has nothing to print.
+  const reference = typeof definition.reference === "string" ? definition.reference : undefined;
+  const unnumberedReference = reference !== undefined && /\{[^}]+\}/.test(reference) && !numbered;
+  if (unnumberedReference && !context.unnumberedReferences.has(name)) {
+    context.unnumberedReferences.add(name);
+    diagnostics.error("UNNUMBERED_CALLOUT_REFERENCE", "layout.callouts." + name + ".reference uses a counter, but the title has none, so '" + name + "' is not numbered.");
+  }
   if (id) {
     if (context.ids.has(id)) diagnostics.error("DUPLICATE_ID", "ID '" + id + "' is defined more than once.");
     context.ids.add(id);
-    context.references.set(id, renderedTitle);
+    context.references.set(id, reference !== undefined && !unnumberedReference ? counterText(reference, name, context.counters.get(name) ?? 0) : renderedTitle);
   }
   const content = renderMarkdownBody(body.trim() + "\n", config, context, diagnostics);
   const qed = style === "proof" ? "<span class=\"qed\">□</span>" : "";
@@ -507,7 +515,7 @@ function renderMarkdownBody(source: string, config: Config, context: RenderConte
   return content;
 }
 
-function addHeadingNumbers(html: string, config: Config): string {
+function addHeadingNumbers(html: string, config: Config, references: Map<string, string>): string {
   const counters = [0, 0, 0, 0, 0, 0, 0];
   const depth = Number(config.layout.heading.numberingDepth ?? 3);
   const formats = config.layout.heading.formats ?? {};
@@ -543,7 +551,10 @@ function addHeadingNumbers(html: string, config: Config): string {
     counters[level]++;
     for (let i = level + 1; i <= 6; i++) counters[i] = 0;
     const format = String(formats["h" + level] ?? "");
-    const number = format.replace(/\{h([1-6])\.([A-Za-z]+)\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
+    const formatNumber = (template: string) => template.replace(/\{h([1-6])\.([A-Za-z]+)\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
+    const number = formatNumber(format);
+    const reference = config.layout.heading.reference?.["h" + level];
+    if (id && typeof reference === "string") references.set(id, formatNumber(reference));
     return "<h" + level + attrs + ">" + escapeHtml(number) + " " + content + "</h" + level + ">";
   });
 }
@@ -706,6 +717,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     counters: new Map(),
     ids: new Set(),
     references: new Map(),
+    unnumberedReferences: new Set(),
     figures: 0,
     sourceFile: file,
     sourceText: source,
@@ -750,7 +762,7 @@ export function compile(source: string, file = "document.md", options: CompileOp
     html = html.replace(/<div class=\"mathmd-directive mathmd-references\"><\/div>/, bibliography(loaded.config, loaded.body, diagnostics, file, bibEntries));
   }
   html = captionTables(html, loaded.config, context, diagnostics);
-  html = addHeadingNumbers(html, loaded.config);
+  html = addHeadingNumbers(html, loaded.config, context.references);
   if (tocCount > 0) {
     if (!/<h[1-6][^>]*>/.test(html)) diagnostics.warning("EMPTY_TOC", "<maketoc /> produced an empty table of contents.");
     html = identifyTocHeadings(html, loaded.config, context.references);

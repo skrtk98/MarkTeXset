@@ -164,14 +164,15 @@ function validateNestedKeys(value: Record<string, any>, file: string, source: st
   unknownNested(value.layout?.page, ["number", "style"], "layout.page", file, source, diagnostics);
   unknownNested(value.layout?.page?.number, ["visible", "position", "format"], "layout.page.number", file, source, diagnostics);
   unknownNested(value.layout?.title, ["date-format", "dateFormat"], "layout.title", file, source, diagnostics);
-  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "toc", "h1", "h2", "h3", "formats"], "layout.heading", file, source, diagnostics);
+  unknownNested(value.layout?.heading, ["numbered", "numbering-depth", "numberingDepth", "toc-depth", "tocDepth", "toc", "h1", "h2", "h3", "formats", "reference"], "layout.heading", file, source, diagnostics);
   unknownNested(value.layout?.heading?.formats, ["h1", "h2", "h3"], "layout.heading.formats", file, source, diagnostics);
+  unknownNested(value.layout?.heading?.reference, ["h1", "h2", "h3"], "layout.heading.reference", file, source, diagnostics);
   unknownNested(value.layout?.counter, ["max-depth", "maxDepth"], "layout.counter", file, source, diagnostics);
   unknownNested(value.layout?.footnote, ["format", "placement"], "layout.footnote", file, source, diagnostics);
   unknownNested(value.layout?.equation, ["numbered", "display", "reference"], "layout.equation", file, source, diagnostics);
   unknownNested(value.layout?.figure, ["numbered", "display", "reference"], "layout.figure", file, source, diagnostics);
   unknownNested(value.layout?.table, ["numbered", "display", "reference"], "layout.table", file, source, diagnostics);
-  if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "style", "class"], "layout.callouts." + name, file, source, diagnostics);
+  if (isRecord(value.layout?.callouts)) for (const [name, definition] of Object.entries(value.layout.callouts)) unknownNested(definition, ["title", "reference", "style", "class"], "layout.callouts." + name, file, source, diagnostics);
   unknownNested(value.command, ["macros", "operators"], "command", file, source, diagnostics);
   unknownNested(value.style, ["import"], "style", file, source, diagnostics);
   unknownNested(value.code, ["theme"], "code", file, source, diagnostics);
@@ -278,13 +279,18 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   for (const [name, template, counter] of [["layout.page.number.format", layout.page?.number?.format, "page"], ["layout.equation.display", layout.equation?.display, "equation"], ["layout.equation.reference", layout.equation?.reference, "equation"], ["layout.figure.display", layout.figure?.display, "figure"], ["layout.figure.reference", layout.figure?.reference, "figure"], ["layout.table.display", layout.table?.display, "table"], ["layout.table.reference", layout.table?.reference, "table"]] as Array<[string, unknown, string]>) {
     if (typeof template === "string") validateCounterTemplate(template, name, file, source, diagnostics, new Set([counter]));
   }
-  const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3"].map((name) => ["layout.heading." + name, layout.heading?.[name]])];
+  const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3"].map((name) => ["layout.heading." + name, layout.heading?.[name]]), ...Object.entries(layout.heading?.reference ?? {}).map(([name, format]) => ["layout.heading.reference." + name, format])];
+  if (layout.heading?.reference !== undefined && !isRecord(layout.heading.reference)) diagnostics.error("INVALID_CONFIG_TYPE", "layout.heading.reference must be a mapping of h1, h2, and h3.", locationFor(source, file, 0));
   for (const [name, format] of headingFormats) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
   for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
     if (!isRecord(definition)) continue;
     if (definition.style !== undefined && !CALLOUT_STYLES.has(String(definition.style)) && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(String(definition.style))) diagnostics.error("INVALID_CALLOUT_STYLE", "Callout style must be a built-in style or a CSS class name.", locationFor(source, file, 0));
     if (definition.class !== undefined && (typeof definition.class !== "string" || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(definition.class))) diagnostics.error("INVALID_CALLOUT_CLASS", "Callout class must be a CSS class name.", locationFor(source, file, 0));
     if (typeof definition.title === "string") validateTitle(definition.title, name, layout.counter?.maxDepth ?? layout.counter?.["max-depth"] ?? 3, file, source, diagnostics);
+    if (definition.reference !== undefined) {
+      if (typeof definition.reference !== "string") diagnostics.error("INVALID_CONFIG_TYPE", "layout.callouts." + name + ".reference must be a string.", locationFor(source, file, 0));
+      else validateTitle(definition.reference, name, layout.counter?.maxDepth ?? layout.counter?.["max-depth"] ?? 3, file, source, diagnostics, "reference");
+    }
     if (name.length === 0) diagnostics.error("INVALID_CALLOUT_NAME", "Callout names must not be empty.", locationFor(source, file, 0));
   }
 }
@@ -300,9 +306,9 @@ function validateCounterTemplate(template: string, label: string, file: string, 
   }
 }
 
-function validateTitle(title: string, environment: string, maxDepth: number, file: string, source: string, diagnostics: Diagnostics): void {
+function validateTitle(title: string, environment: string, maxDepth: number, file: string, source: string, diagnostics: Diagnostics, key = "title"): void {
   const unescaped = title.replace(/\{\{/g, "").replace(/\}\}/g, "");
-  validateCounterTemplate(unescaped, "layout.callouts." + environment + ".title", file, source, diagnostics, new Set([environment, "h1", "h2", "h3", "h4", "h5", "h6"]), maxDepth);
+  validateCounterTemplate(unescaped, "layout.callouts." + environment + "." + key, file, source, diagnostics, new Set([environment, "h1", "h2", "h3", "h4", "h5", "h6"]), maxDepth);
 }
 
 function validateCommands(command: Record<string, any> | undefined, file: string, source: string, diagnostics: Diagnostics): void {

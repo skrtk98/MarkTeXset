@@ -307,6 +307,32 @@ test("allows rich Callout contents and nested Callouts", () => {
   assert.match(result.html, /Nested note/);
 });
 
+test("prints heading and Callout references with their reference formats", () => {
+  const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
+  const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
+  const result = compile(config + body);
+  assert.deepEqual(result.diagnostics.items.map((item) => item.code), []);
+  assert.match(result.html, /href="#sec:two">Section 2<\/a>/);
+  assert.match(result.html, /href="#sec:sub">Section II\.a<\/a>/);
+  assert.match(result.html, /href="#sec:deep">Deep<\/a>/, "levels without a reference format print the heading text");
+  assert.match(result.html, /href="#sec:plain">Plain<\/a>/, "unnumbered headings print the heading text");
+  assert.match(result.html, /href="#thm:b">Theorem II<\/a>/);
+  assert.match(result.html, /href="#prf:b">the proof<\/a>/);
+  assert.match(result.html, /href="#rem:a">remark<\/a>/, "Callouts without a reference format print the title");
+  assert.match(result.html, /href="#thm:a">see<\/a>/);
+  const defaults = compile("# Intro {#intro}\n\n[](#intro)\n");
+  assert.match(defaults.html, /href="#intro">Intro<\/a>/, "headings print their text by default, as before");
+});
+
+test("rejects a numbered Callout reference for an unnumbered environment and invalid reference formats", () => {
+  const unnumbered = compile("---\nmathmd:\n  layout:\n    callouts:\n      note:\n        title: Note\n        reference: \"Note {note.arabic}\"\n---\n> [!note] {#n1}\n> A.\n\n> [!note] {#n2}\n> B.\n\n[](#n1)\n");
+  assert.equal(unnumbered.diagnostics.items.filter((item) => item.code === "UNNUMBERED_CALLOUT_REFERENCE").length, 1);
+  assert.match(unnumbered.html, /href="#n1">Note<\/a>/);
+  const invalid = compile("---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {theorem.arabic}\"\n        h4: \"x\"\n    callouts:\n      theorem:\n        title: \"Theorem {theorem.arabic}\"\n        reference: \"Theorem {lemma.arabic}\"\n---\nBody.\n");
+  assert.deepEqual(invalid.diagnostics.items.map((item) => item.code).sort(), ["INVALID_COUNTER_TEMPLATE", "INVALID_COUNTER_TEMPLATE", "UNKNOWN_CONFIG_KEY"]);
+  assert.ok(compile("---\nmathmd:\n  layout:\n    heading:\n      reference: \"Section\"\n---\nBody.\n").diagnostics.items.some((item) => item.code === "INVALID_CONFIG_TYPE"));
+});
+
 test("renders numbered figures and resolves figure references", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-figure-"));
   fs.writeFileSync(path.join(directory, "image.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>");
