@@ -10,9 +10,9 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 
 - **Math**: inline `$...$` and display `$$...$$` math rendered by MathJax as SVG with accessible MathML, numbered multi-line equations, `\label` / `\ref` / `\eqref`, user-defined macros and operators, and commutative diagrams in `tikzcd` blocks.
 - **Theorem environments**: Callouts such as `> [!theorem]` with configurable titles, counters, and styles (`plain`, `definition`, `remark`, `proof`, or a custom class).
-- **Document structure**: numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables.
+- **Document structure**: the `article`, `report`, and `book` classes, with chapters, appendices, and book front and back matter; numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables. In `report` and `book`, figures, tables, and equations are numbered within chapters, and theorem counters can be too.
 - **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files. An empty link such as `[](#thm:main)` prints the target's number in a configurable format, such as "Theorem 3" or "Section 2.1".
-- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
+- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, chapters that open on a new page (a right-hand page in a book), facing running heads and roman-numbered front matter in books, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.
 - **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External images and CSS assets need an explicit HTTPS allowlist, are verified and cached by content hash, and are embedded in the output.
@@ -95,6 +95,39 @@ See [](#eq:pythagoras) and [@knuth1984].
 
 The full versions are [examples/minimal.en.md](examples/minimal.en.md) and [examples/minimal.ja.md](examples/minimal.ja.md).
 
+## Document classes
+
+`layout.class` chooses between `article` (the default), `report`, and `book`, as in LaTeX. In `report` and `book`, `#` is a chapter, and figures, tables, and equations are numbered within it ("Figure 2.1", "(2.1)"). Japanese documents follow ltjsreport and ltjsbook ("第2章", "図 2.1"). A book is typeset two-sided: chapters open on right-hand pages, the running heads show the chapter on the left and the section on the right, and `<frontmatter />`, `<mainmatter />`, and `<backmatter />` switch between unnumbered, roman-numbered front matter, the main text, and unnumbered back matter. `<appendix />` letters the following chapters (or sections, in an article) as A, B, and so on.
+
+```markdown
+---
+mathmd:
+  layout:
+    class: book
+    callouts:
+      theorem:
+        title: "Theorem {h1.arabic}.{h1 > theorem.arabic}."
+---
+
+<maketitle />
+
+<frontmatter />
+
+<maketoc />
+
+# Preface
+
+<mainmatter />
+
+# Introduction
+
+<appendix />
+
+# Proofs
+```
+
+A scoped counter such as `{h1 > theorem.arabic}` restarts at every chapter, like LaTeX's `\numberwithin`, in any class.
+
 ## Command line
 
 Every invocation names a subcommand: `build`, `preview`, `init`, or `fonts`. The old form without a subcommand is no longer supported.
@@ -159,7 +192,7 @@ mathmd:
 ---
 ```
 
-The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. There are prose samples and samples with figures, tables, matrices, lists, code, and footnotes, in English and Japanese. `npm test` checks that their PDFs have no overfull lines, no Japanese line-breaking (kinsoku) violations, and no Japanese lines spread out to fill the measure, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
+The samples in [examples/quality/](examples/quality/) use only standard Markdown, so MarkTeXset and Pandoc read them the same way. There are prose samples, samples with figures, tables, matrices, lists, code, and footnotes, and samples divided into chapters with the `report` class, in English and Japanese. `npm test` checks that their PDFs have no overfull lines, no Japanese line-breaking (kinsoku) violations, and no Japanese lines spread out to fill the measure, at most two hyphenated lines in a row, nearly full pages, and only the default fonts, all embedded. To compare with the Pandoc + LuaLaTeX baseline side by side:
 
 ```bash
 docker build -t marktexset-baseline baseline

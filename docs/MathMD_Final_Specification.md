@@ -266,7 +266,39 @@ mathmd:
 
 `meta.language: ja` の文書では、明示されていない生成文字列の既定値を ltjsarticle に揃える。目次見出しは「目次」、文献見出しは「参考文献」、図は `図 {figure.arabic}`、表は `表 {table.arabic}`、式の参照は `式 ({equation.arabic})` とする。設定で明示した値はこの既定値より優先する。
 
-フェーズ1は `language: en|ja`、`class: article`、`size: A4` のみ許可する。日付の既定値は指定タイムゾーンのシステム時刻、既定タイムゾーンは UTC。余白は mm、cm、in、pt の非負値で、上下左右を個別指定する map も許可する。ゼロは許可する。
+`language` は `en|ja`、`class` は `article|report|book`、`size` は `A4` のみ許可する。日付の既定値は指定タイムゾーンのシステム時刻、既定タイムゾーンは UTC。余白は mm、cm、in、pt の非負値で、上下左右を個別指定する map も許可する。ゼロは許可する。
+
+### 文書クラス
+
+`layout.class` は LaTeX の文書クラスに対応し、既定は `article`。`report` と `book` は章立ての文書で、`#` を章（`\chapter`）、`##` を節、`###` を小節とする。日本語の文書では ltjsreport / ltjsbook に揃える。両クラスでは明示されていない次の値の既定を変える。
+
+| 設定 | `article` | `report` / `book`（英語） | `report` / `book`（日本語） |
+|---|---|---|---|
+| `layout.heading.h1` | `{h1.arabic}.` | `Chapter {h1.arabic}` | `第{h1.arabic}章` |
+| `layout.heading.h2` / `h3` | `{h1.arabic}.{h2.arabic}.` など | 同左 | 同左 |
+| `layout.heading.appendix` | `layout.heading.h1` と同じ | `Appendix {h1.arabic}` | `付録{h1.arabic}` |
+| `layout.figure.display` | `Figure {figure.arabic}.` | `Figure {h1.arabic}.{h1 > figure.arabic}.` | `図 {h1.arabic}.{h1 > figure.arabic}` |
+| `layout.table.display` | `Table {table.arabic}.` | `Table {h1.arabic}.{h1 > table.arabic}.` | `表 {h1.arabic}.{h1 > table.arabic}` |
+| `layout.equation.display` | `({equation.arabic})` | `({h1.arabic}.{h1 > equation.arabic})` | 同左 |
+| `citation.heading` | `References` / level 2 | `Bibliography` / level 1 | `参考文献` / level 1 |
+| `layout.page.style` | `plain` | `report` は `plain`、`book` は `headings` | 同左 |
+
+図・表・式の `reference` も `display` と同じく章番号付きになる（日本語の式は `式 ({h1.arabic}.{h1 > equation.arabic})`）。章見出しは章番号の行と題目の行に分けて表示する。目次の章の項目は、英語では LaTeX と同じく番号だけ（`1 Introduction`、付録は `A Proofs`）、日本語では `第1章 序論` とする。PDF では次のように組む。
+
+- 章は新しいページから始める。`book` は両面組で、章は右ページ（奇数ページ）から始め、必要なら直前に空白の左ページを入れる。空白ページには柱もページ番号も出さず、空白ページの診断の対象にもしない。
+- `<maketitle />` の表題は独立したページに組み（`book` では裏も空白にする）、表題ページにはページ番号を出さない。次のページからページ番号を 1 に戻す。目次も新しいページ（`book` では右ページ）から始める。
+- `book` の `headings` は見開きの柱とする。左ページは左上にページ番号、右上に章を、右ページは左上に節、右上にページ番号を出し、下のページ番号は出さない。章の最初のページと目次の最初のページは LaTeX の `\chapter` と同じく `plain` とする。`layout.margins` に `left` と `right` を指定した場合、`left` をのど側、`right` を小口側とし、左ページでは左右を入れ替える。
+- 見出しの大きさは章 2.488em（`\Huge`）、章番号 2.074em（`\huge`）、節 1.44em、小節 1.2em とする。
+
+`book` では次の制御要素で前付け・本文・後付けを切り替える。前付けと後付けの章には番号を付けない（下位の見出しは章番号を 0 として番号を付ける）。前付けのページ番号は小文字のローマ数字とし、`<mainmatter />` のページから算用数字の 1 に戻す。目次のページ番号も同じ形式で表示する。`report` と `article` でこれらを使うとエラー `BOOK_ONLY_DIRECTIVE` とする。
+
+```html
+<frontmatter />
+<mainmatter />
+<backmatter />
+```
+
+`<appendix />` はすべてのクラスで使え、LaTeX の `\appendix` と同じく、以降の最上位の見出し（`article` では節、`report` / `book` では章）の番号を 1 に戻してアルファベット（`A`、`B`、…）にする。最上位の見出しの番号には `layout.heading.appendix` の書式を使い、下位の見出しや図・表・式の `{h1.*}` も `A` のように表示する。2 つ目以降の `<appendix />` は警告 `DUPLICATE_APPENDIX` とし、無視する。
 
 ## 5. Markdown と専用要素
 
@@ -284,7 +316,13 @@ Heading Attributes は `{#id .class}` を許可する。見出しに自動 ID �
 <maketoc />
 <maketitle />
 <references />
+<appendix />
+<frontmatter />
+<mainmatter />
+<backmatter />
 ```
+
+`appendix`、`frontmatter`、`mainmatter`、`backmatter` は「文書クラス」の節で定める。
 
 `pagestyle` は `empty`、`plain`、`headings` のみ。未知値は警告して `plain` にフォールバックする。LaTeX の `\pagestyle` と同様に、マーカーを含むページから次のマーカーまでのページに適用する。マーカーの直後に `pagebreak` が続く場合は、改ページ後のページから適用する。`empty` は柱とページ番号を出さず、`plain` はページ番号だけ、`headings` は柱（直近の h1 / h2 見出し）とページ番号を出す。`pagebreak` は先頭・末尾・連続でも実行し、空白ページを警告する。`maketitle`、`maketoc`、`references` は複数指定時に最初だけ有効とし、後続を警告する。
 
@@ -312,7 +350,7 @@ layout:
 
 `numbered` は持たず、title にカウンタープレースホルダーがある場合だけ番号を付ける。未登録環境は環境名を title、`plain` を style とする。フェーズ1の組み込み style は `plain`、`definition`、`remark`、`proof`。未知 style は警告して plain にフォールバックする。proof は番号なし、title は YAML の title、内容末尾に `□` を自動付与する。
 
-カウンター形式は `arabic`、`roman`、`Roman`、`alph`、`Alph`。`{h1 > theorem.arabic}` のようなスコープを許可し、要素数が `layout.counter.max-depth` を超えたらエラー。未知カウンター・未知形式はエラー。形式は見出し番号、Callout のタイトル、式・図・表の表示と参照、ページ番号のすべてで同じように表示する（`roman` は小文字ローマ数字、`alph` は a, b, …, z, aa, …）。
+カウンター形式は `arabic`、`roman`、`Roman`、`alph`、`Alph`。`{h1 > theorem.arabic}` のようなスコープを許可し、要素数が `layout.counter.max-depth` を超えたらエラー。スコープ付きのカウンターは LaTeX の `\numberwithin` と同じく、スコープの見出し（またはそれより上位の見出し）に番号が付くたびに 1 に戻る。スコープは Callout の title と、式・図・表の `display` に書いたものが有効になる。Callout の title と式・図・表の書式には `{h1.arabic}` のような見出し番号も書け、その要素の位置での見出し番号を表示する。未知カウンター・未知形式はエラー。形式は見出し番号、Callout のタイトル、式・図・表の表示と参照、ページ番号のすべてで同じように表示する（`roman` は小文字ローマ数字、`alph` は a, b, …, z, aa, …）。
 
 Callout の `title` は YAML の文字列を CommonMark のインライン構文として解釈する。太字、斜体、取り消し線、リンク、コード、エスケープ、インライン数式 `$...$` を許可し、生 HTML とブロック構文は許可しない。カウンタープレースホルダーは Markdown 解釈前に展開する。生成 HTML の `.callout`、`.callout-title`、`.callout-body`、`.callout-<environment>` は安定した公開クラスとする。
 
@@ -341,7 +379,7 @@ layout:
 
 `layout.heading.reference` は `h1`〜`h3` の書式を持つ map で、プレースホルダーは見出し番号の書式と同じものを使う。既定値はなく、未指定のレベルは見出しの文字列を表示する。Callout の `reference` は title と同じカウンタープレースホルダーを使い、Markdown として解釈せずそのまま文字列として表示する。title にカウンターのない（番号の付かない）環境の `reference` にカウンターがあればエラー `UNNUMBERED_CALLOUT_REFERENCE` とし、title を表示する。数式内の `\eqref` と `\ref` は LaTeX と同じく番号だけ（`(1)` と `1`）を表示する。未解決参照は警告し、参照文字列全体を赤太字で表示する。
 
-引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。numeric の参考文献一覧は標準箇条書きマーカーを使わず、`[1] Title`、`[2] Title` のラベルとハンギングインデントで表示する。既定は `References` / level 2。
+引用は Pandoc 互換の `[@key]` と複数引用 `[@a; @b]`。フェーズ1は numeric のみで、本文の初出順に番号を割り当てる。同一引用グループの重複キーは警告して除去する。`.bib` は Markdown 基準のローカルパスのみ、重複キーは警告して後勝ち。`<references />` の位置に `citation.heading.text` / `citation.heading.level` による見出しと参考文献を生成する。見出しには LaTeX の `thebibliography` と同じく番号を付けない。numeric の参考文献一覧は標準箇条書きマーカーを使わず、`[1] Title`、`[2] Title` のラベルとハンギングインデントで表示する。既定は `References` / level 2。
 
 ## 8. 数式
 
@@ -488,7 +526,7 @@ PDF の英文段落（`lang` が `en` で始まり、和文を含まない段落
 
 インライン数式は、TeX と同じく最上位の関係演算子（`=`、`<`、`\le`、`\to`、`\in` など）と二項演算子（`+`、`-`、`\times`、`\cdot` など）の直後で改行してよい。波括弧・括弧・`\left...\right`・絶対値記号・環境の内側、単項の符号、上付き・下付きを伴う演算子、連続する演算子の間では分割しない。`\over`、スタイル切替、`\color`、`\not` などを含む数式は分割しない。分割した各部分は別の SVG にし、演算子の後の空きは TeX の thick space（5mu）と medium space（4mu）の幅の空白として置く。改行位置ではこの空白が消える。Knuth–Plass 法ではこの空白に `\relpenalty` 500 と `\binoppenalty` 700 を課す。和文段落と HTML 出力ではブラウザがこの空白で改行する。支援技術向けの MathML は数式全体を 1 つだけ出力する。
 
-PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。`article` と同様に第 1 レベルの項目は太字でリーダーを付けない。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。
+PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。`report` と `book` ではページ番号を途中で 1 に戻すが、Vivliostyle の `target-counter()` は戻した後のすべての見出しに戻した値を返すため、ページ分割の後にページを数えて目次の番号を書き込む。`article` と同様に第 1 レベルの項目は太字でリーダーを付けない。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。
 
 PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置し、入らなければ次ページの上端へ送る（CSS page float の `float: top`）。表は Pandoc の LaTeX 出力と同じく booktabs 型の罫線（上下の太罫と見出し行の下罫）で組み、見出しは表の上に置く。罫線は詳細度 0 で指定するため、利用者の表スタイルが優先する。コードブロックと Callout はページをまたいで分割してよく、前後に 3 行以上を残す。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
@@ -545,7 +583,7 @@ PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置
 - ローカル資産の相対パス解決と画像の埋め込み、MathJax の SVG + 支援 MathML アクセシビリティ
 - コード・表・数式のはみ出し警告、重なり検査、空白ページ警告
 - レイアウト系テスト（ページ数、文字位置、overflow、overlap）
-- baseline 用 Docker の Pandoc + LuaLaTeX、`article` / `ltjsarticle` 比較環境（MarkTeXset のコンパイルには使用しない）
+- baseline 用 Docker の Pandoc + LuaLaTeX、`article` / `ltjsarticle`、`report` / `ltjsreport`、`book` / `ltjsbook` 比較環境（MarkTeXset のコンパイルには使用しない）
 
 ### フェーズ3 — 文献・言語・高度な文書要素（実装済み）
 
@@ -627,7 +665,7 @@ PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置
 
 ### 組版品質の評価
 
-組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプルで測る。散文のサンプル（`examples/quality/prose.en.md`、`prose.ja.md`）と、図・表・行列を含む別行立て数式・番号付きリスト・コード・脚注を含むサンプル（`structure.en.md`、`structure.ja.md`）を英日それぞれに用意する。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。SVG の数式は文字をもたず行が分断されるため、高さの大半が重なる断片を 1 行にまとめてから数える。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
+組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプルで測る。散文のサンプル（`examples/quality/prose.en.md`、`prose.ja.md`）、図・表・行列を含む別行立て数式・番号付きリスト・コード・脚注を含むサンプル（`structure.en.md`、`structure.ja.md`）、`report` クラスで章立てしたサンプル（`chapters.en.md`、`chapters.ja.md`）を英日それぞれに用意する。baseline は同じクラス（`report` は `report` / `ltjsreport`）で、Pandoc の `--number-sections` と、章立てのクラスでは `--top-level-division=chapter` を付けて組む。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。SVG の数式は文字をもたず行が分断されるため、高さの大半が重なる断片を 1 行にまとめてから数える。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
 
 | 指標 | 合格基準（MarkTeXset） |
 |---|---|
@@ -635,7 +673,7 @@ PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置
 | 禁則違反（行頭禁則文字で始まる行、行末禁則文字で終わる行） | 0 |
 | 和文の字間の最大の広がり（2 字以上の和文の連なりの 1 字あたりの送りが、中央値を超える割合） | 10% 未満 |
 | 連続するハイフン付き行末 | 2 行以下 |
-| 最終ページ以外のページ下部の空白率（脚注がある場合は脚注の上の空き。罫線と前後のアキ 1.5 行分は除く） | 15% 未満 |
+| 最終ページ以外のページ下部の空白率（脚注がある場合は脚注の上の空き。罫線と前後のアキ 1.5 行分は除く。章立てのクラスでは、本文が上端から 3 行分以上下がって始まるページを章の始まりとみなし、その前の章の最後のページも除く） | 15% 未満 |
 | 代替フォント・非埋め込みフォント | なし（既定フォント導入時） |
 
 合格基準は `npm test` で検査する。`npm run quality -- --baseline` は同じサンプルを baseline の Docker 環境でも組版し、ページ数、行数、空白率、ハイフン、禁則、フォントを並べたレポートを `quality-report/` に出力する。baseline との比較は参考値であり、合否判定には使わない。CI は master への push ごとにこのレポートを作成する。

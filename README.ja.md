@@ -10,9 +10,9 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 
 - **数式**：インライン `$...$` とブロック `$$...$$` を MathJax で SVG とアクセシブルな MathML に変換する。複数行数式の番号付け、`\label`・`\ref`・`\eqref`、ユーザー定義マクロ・演算子、`tikzcd` ブロックによる可換図式に対応する。
 - **定理環境**：`> [!theorem]` などの Callout。タイトル、カウンター、style（`plain`、`definition`、`remark`、`proof`、カスタムクラス）を設定できる。
-- **文書構造**：番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。
+- **文書構造**：`article`・`report`・`book` の文書クラス（章、付録、book の前付けと後付け）、番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。`report` と `book` では図・表・式に章ごとの番号を付け、定理などのカウンターも章ごとにできる。
 - **参照と引用**：数式・見出し・Callout の ID は一つの名前空間を共有し、通常の Markdown の fragment link で参照する。`[](#thm:main)` のような空リンクは、参照先の番号を「Theorem 3」「Section 2.1」のように設定した書式で表示する。ローカルの `.bib` からの `[@key]` 引用に対応する。
-- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
+- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。新しいページ（book では右ページ）から始まる章、book の見開きの柱とローマ数字の前付け、柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
 - **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部の画像と CSS 資産には HTTPS の明示的な許可リストが必要で、内容ハッシュで検証・キャッシュしたうえで出力に埋め込む。
@@ -95,6 +95,39 @@ See [](#eq:pythagoras) and [@knuth1984].
 
 完全版は [examples/minimal.en.md](examples/minimal.en.md) と [examples/minimal.ja.md](examples/minimal.ja.md) にある。
 
+## 文書クラス
+
+`layout.class` で LaTeX と同じく `article`（既定）、`report`、`book` を選ぶ。`report` と `book` では `#` が章になり、図・表・式には章ごとの番号を付ける（「Figure 2.1」「(2.1)」）。日本語の文書は ltjsreport と ltjsbook に揃える（「第2章」「図 2.1」）。`book` は両面組で、章は右ページから始まり、柱は左ページに章、右ページに節を出す。`<frontmatter />`、`<mainmatter />`、`<backmatter />` で、番号なしでローマ数字のページ番号の前付け、本文、番号なしの後付けを切り替える。`<appendix />` は以降の章（article では節）に A、B、… と番号を付ける。
+
+```markdown
+---
+mathmd:
+  layout:
+    class: book
+    callouts:
+      theorem:
+        title: "Theorem {h1.arabic}.{h1 > theorem.arabic}."
+---
+
+<maketitle />
+
+<frontmatter />
+
+<maketoc />
+
+# Preface
+
+<mainmatter />
+
+# Introduction
+
+<appendix />
+
+# Proofs
+```
+
+`{h1 > theorem.arabic}` のようなスコープ付きのカウンターは、LaTeX の `\numberwithin` と同じく章ごとに 1 に戻る。どのクラスでも使える。
+
 ## コマンドライン
 
 呼び出しには必ずサブコマンド `build`、`preview`、`init`、`fonts` のいずれかを指定する。サブコマンドなしの旧形式はサポートしない。
@@ -159,7 +192,7 @@ mathmd:
 ---
 ```
 
-[examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。散文のサンプルと、図・表・行列・リスト・コード・脚注を含むサンプルを英日それぞれに用意している。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、和文の行が字間を広げて埋められていないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
+[examples/quality/](examples/quality/) のサンプルは標準 Markdown だけで書いてあり、MarkTeXset と Pandoc が同じように読める。散文のサンプル、図・表・行列・リスト・コード・脚注を含むサンプル、`report` クラスで章立てしたサンプルを英日それぞれに用意している。`npm test` は、これらの PDF にはみ出し行と禁則違反がないこと、和文の行が字間を広げて埋められていないこと、ハイフン付きの行末が 3 行以上続かないこと、ページがほぼ埋まっていること、既定フォントだけが埋め込まれていることを検査する。Pandoc + LuaLaTeX の baseline と並べて比べるには次を実行する。
 
 ```bash
 docker build -t marktexset-baseline baseline
