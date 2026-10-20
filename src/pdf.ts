@@ -92,6 +92,14 @@ function bindPageStyleMarkers(html: string): string {
   return html.replace(new RegExp("(<div class=\"mathmd-directive mathmd-pagestyle\" data-name=\"[^\"]*\"><\\/div>)(" + breaks + ")", "g"), "$2$1");
 }
 
+// A chapter or the contents of a report or book starts a page anyway, so a page break right before it would
+// leave an empty page; LaTeX's \newpage before \chapter has no effect either.
+function dropBreaksBeforeChapters(html: string, config: Record<string, any>): string {
+  if (config.layout?.class !== "report" && config.layout?.class !== "book") return html;
+  const directives = "(?:<div class=\"mathmd-directive [^\"]*\"[^>]*><\\/div>\\s*)*";
+  return html.replace(new RegExp("(?:<div class=\"mathmd-directive mathmd-pagebreak\"[^>]*><\\/div>\\s*)+(?=" + directives + "(?:<h1\\b[^>]*\\bclass=\"chapter|<nav class=\"table-of-contents\"))", "g"), "");
+}
+
 // <frontmatter />, <mainmatter />, and <backmatter /> each start a section that runs to the next one,
 // so the front matter can have its own page numbering.
 function wrapMatter(html: string): string {
@@ -198,7 +206,7 @@ ${chapterCss(config, pageNumber)}
 </style>`;
   // The title is not a section: keep it out of the PDF outline, the tag tree's headings, and the running head.
   const titled = html.replace(/<h1 class="document-title-heading">([\s\S]*?)<\/h1>/, "<div class=\"document-title-heading\">$1</div>");
-  const prepared = wrapMatter(bindPageStyleMarkers(inlineFootnotes(titled))).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
+  const prepared = wrapMatter(dropBreaksBeforeChapters(bindPageStyleMarkers(inlineFootnotes(titled)), config)).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
   return embedLocalImages(prepared.replace("</head>", css + "</head>"), baseDirectory);
 }
 
