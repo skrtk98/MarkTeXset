@@ -12,7 +12,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 - **定理環境**：`> [!theorem]` などの Callout。タイトル、カウンター、style（`plain`、`definition`、`remark`、`proof`、カスタムクラス）を設定できる。
 - **文書構造**：`article`・`report`・`book` の文書クラス（章、付録、book の前付けと後付け）、番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。`report` と `book` では図・表・式に章ごとの番号を付け、定理などのカウンターも章ごとにできる。
 - **参照と引用**：数式・見出し・Callout の ID は一つの名前空間を共有し、通常の Markdown の fragment link で参照する。`[](#thm:main)` のような空リンクは、参照先の番号を「Theorem 3」「Section 2.1」のように設定した書式で表示する。ローカルの `.bib` からの `[@key]` 引用に対応する。
-- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle でページ分割する。新しいページ（book では右ページ）から始まる章、book の見開きの柱とローマ数字の前付け、柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
+- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle で、LaTeX の標準クラス（`article`・`book`・`ltjsarticle`・`ltjsbook`）の版面（余白、文字の大きさ、行送り、見出し、表題、脚注、キャプション、柱）に揃えてページ分割する。新しいページ（book では右ページ）から始まる章、book の見開きの柱とローマ数字の前付け、柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
 - **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部の画像と CSS 資産には HTTPS の明示的な許可リストが必要で、内容ハッシュで検証・キャッシュしたうえで出力に埋め込む。
@@ -26,7 +26,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
   npx playwright install chromium
   ```
 
-- 既定フォント（Latin Modern と原ノ味フォント、約 12MB）。初回に一度だけユーザーキャッシュへ取得し、固定した SHA-256 で検証する。
+- 既定フォント（Latin Modern Roman・Sans・Mono と原ノ味フォント、約 12MB）。更新後に `fonts status` が未取得のフォントを示したら、`fonts install` を再実行する。初回に一度だけユーザーキャッシュへ取得し、固定した SHA-256 で検証する。
 
   ```bash
   marktexset fonts install   # または npm start -- fonts install

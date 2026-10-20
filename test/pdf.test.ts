@@ -45,9 +45,9 @@ test("places footnotes at the bottom of the page that references them", async ()
   await renderPdf(result, output, path.join(directory, "document.md"));
   const first = pageText(output, 1);
   const second = pageText(output, 2);
-  assert.match(first, /1\. Note on page one\./);
+  assert.match(first, /1\s*Note on page one\./);
   assert.doesNotMatch(first, /Note on page two/);
-  assert.match(second, /2\. Note on page two\./);
+  assert.match(second, /2\s*Note on page two\./);
   assert.ok(first.indexOf("First page text") < first.indexOf("Note on page one"));
 });
 
@@ -59,12 +59,12 @@ test("applies page styles from the page that follows a style marker", async () =
   assert.equal(result.diagnostics.hasErrors, false);
   await renderPdf(result, output, path.join(directory, "document.md"));
   const [first, second, third] = [1, 2, 3].map((page) => pageText(output, page).trim().split("\n").map((line) => line.trim()).filter(Boolean));
-  assert.equal(first.filter((line) => line === "1. Alpha").length, 2, "headings style repeats the section in the running head");
-  assert.equal(first.at(-1), "1");
+  assert.match(first[0], /^1 ALPHA\s+1$/, "headings style sets the section and the page number in the head, as LaTeX's does");
+  assert.ok(!first.slice(1).includes("1"), "headings style has no page number at the bottom");
   assert.ok(!second.includes("2"), "empty style hides the page number");
-  assert.equal(second.filter((line) => line === "2. Beta").length, 1, "empty style has no running head");
+  assert.deepEqual(second.filter((line) => /Beta/i.test(line)).map((line) => line.replace(/\s+/g, " ")), ["2 Beta"], "empty style has no running head");
   assert.equal(third.at(-1), "3", "plain style shows the page number");
-  assert.equal(third.filter((line) => line === "3. Gamma").length, 1, "plain style has no running head");
+  assert.deepEqual(third.filter((line) => /Gamma/i.test(line)).map((line) => line.replace(/\s+/g, " ")), ["3 Gamma"], "plain style has no running head");
 });
 
 test("a book opens chapters on right-hand pages, numbers front matter in roman, and sets facing running heads", async () => {
@@ -77,17 +77,18 @@ test("a book opens chapters on right-hand pages, numbers front matter in roman, 
   assert.deepEqual(result.diagnostics.items, []);
   await renderPdf(result, output, path.join(directory, "document.md"));
   assert.deepEqual(result.diagnostics.items, [], "the blank left-hand pages before chapters are intended");
-  const pages = Array.from({ length: 11 }, (_, index) => pageText(output, index + 1).split("\n").map((line) => line.trim()).filter(Boolean));
+  const pages = Array.from({ length: 15 }, (_, index) => pageText(output, index + 1).split("\n").map((line) => line.trim()).filter(Boolean));
   assert.equal(pages[0][0], "A Book");
   assert.ok(!pages[0].includes("1"), "the title page has no page number");
   assert.deepEqual(pages[1], [], "the back of the title page is blank");
-  assert.deepEqual(pages[2].map((line) => line.replace(/\s+/g, " ")), ["Contents", "Preface iii", "1 Alpha 1", "1.1. Alpha section 1", "2 Beta 3", "2.1. Beta section 3", "Index 5", "i"], "the contents page is plain and lists front matter pages in roman");
+  assert.deepEqual(pages[2].map((line) => line.replace(/(?: \.)+/g, "").replace(/\s+/g, " ")), ["Contents", "Preface iii", "1 Alpha 1", "1.1 Alpha section 1", "2 Beta 5", "2.1 Beta section 5", "Index 9", "i"], "the contents page is plain and lists front matter pages in roman");
   assert.deepEqual(pages[3], [], "a blank left-hand page has no running head or number");
   assert.deepEqual([pages[4][0], pages[4].at(-1)], ["Preface", "iii"]);
   assert.deepEqual([pages[6][0], pages[6][1], pages[6].at(-1)], ["Chapter 1", "Alpha", "1"], "a chapter opens on a plain right-hand page");
-  assert.match(pages[7][0], /^2\s+Chapter 1 Alpha$/, "a left-hand page has the page number and the chapter in its head");
+  assert.match(pages[7][0], /^2\s+CHAPTER 1 ALPHA$/, "a left-hand page has the page number and the chapter in its head");
   assert.ok(!pages[7].slice(1).includes("2"), "running-head pages have no page number at the bottom");
-  assert.deepEqual([pages[8][0], pages[10][0], pages[10].at(-1)], ["Chapter 2", "Index", "5"]);
+  assert.match(pages[8][0], /^1\.1 ALPHA SECTION\s+3$/, "a right-hand page has the section and the page number in its head");
+  assert.deepEqual([pages[10][0], pages[14][0], pages[14].at(-1)], ["Chapter 2", "Index", "9"]);
 });
 
 test("a book still reports a blank left-hand page that no chapter explains", async () => {
@@ -184,7 +185,7 @@ test("adds page numbers to the table of contents, an outline, tags, and document
   assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
   await renderPdf(result, output, path.join(directory, "document.md"));
   const toc = pageText(output, 1);
-  for (const [entry, page] of [["1. One", 1], ["1.1. Sub one", 1], ["2. Two", 2], ["3. Three", 3]] as const) assert.match(toc, new RegExp(entry.replace(/\./g, "\\.") + "\\s+" + page + "\\n"), entry);
+  for (const [entry, page] of [["1 One", 1], ["1.1 Sub one", 1], ["2 Two", 2], ["3 Three", 3]] as const) assert.match(toc, new RegExp(entry.replace(/\./g, "\\.") + "[\\s.]+" + page + "\\n"), entry);
   const info = execFileSync("pdfinfo", [output], { encoding: "utf8" });
   assert.match(info, /Title:\s+Spectra/);
   assert.match(info, /Author:\s+Ada Lovelace, Emmy Noether/);
@@ -200,7 +201,7 @@ test("adds page numbers to the table of contents, an outline, tags, and document
     }
   };
   walk(pdf.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict), 0);
-  assert.deepEqual(outline, ["Contents", "1. One", "  1.1. Sub one", "2. Two", "3. Three"]);
+  assert.deepEqual(outline, ["Contents", "1 One", "  1.1 Sub one", "2 Two", "3 Three"]);
 });
 
 test("prints page numbers in the configured counter format", () => {

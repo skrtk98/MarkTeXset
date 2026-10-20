@@ -12,7 +12,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 - **Theorem environments**: Callouts such as `> [!theorem]` with configurable titles, counters, and styles (`plain`, `definition`, `remark`, `proof`, or a custom class).
 - **Document structure**: the `article`, `report`, and `book` classes, with chapters, appendices, and book front and back matter; numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables. In `report` and `book`, figures, tables, and equations are numbered within chapters, and theorem counters can be too.
 - **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files. An empty link such as `[](#thm:main)` prints the target's number in a configurable format, such as "Theorem 3" or "Section 2.1".
-- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium, chapters that open on a new page (a right-hand page in a book), facing running heads and roman-numbered front matter in books, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
+- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium on the page layout of LaTeX's standard classes (`article`, `book`, `ltjsarticle`, `ltjsbook`: margins, type size, leading, headings, title, footnotes, captions, and running heads), chapters that open on a new page (a right-hand page in a book), facing running heads and roman-numbered front matter in books, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.
 - **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External images and CSS assets need an explicit HTTPS allowlist, are verified and cached by content hash, and are embedded in the output.
@@ -26,7 +26,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
   npx playwright install chromium
   ```
 
-- The default fonts (Latin Modern and Harano Aji, about 12 MB). They are downloaded once into a user cache and verified against pinned SHA-256 checksums:
+- The default fonts (Latin Modern Roman, Sans, and Mono and Harano Aji, about 12 MB). Run `fonts install` again after upgrading if `fonts status` lists a missing font. They are downloaded once into a user cache and verified against pinned SHA-256 checksums:
 
   ```bash
   marktexset fonts install   # or: npm start -- fonts install

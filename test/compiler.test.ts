@@ -13,11 +13,15 @@ import { inlineMathParts } from "../src/math.js";
 import { Diagnostics } from "../src/diagnostics.js";
 import { loadConfig } from "../src/config.js";
 
+
+// Heading numbers are wrapped in a span; most assertions only care about the text.
+const headingText = (html: string) => html.replace(/<span class="heading-number">([^<]*)<\/span>/g, "$1");
+
 test("renders CommonMark, MathJax math, headings, and callouts", () => {
   const result = compile("# Intro\n\n## Detail\n\nInline $x^2$.\n\n> [!theorem]\n> A statement.\n");
   assert.equal(result.diagnostics.hasErrors, false);
-  assert.match(result.html, /<h1>1\. Intro<\/h1>/);
-  assert.match(result.html, /<h2>1\.1\. Detail<\/h2>/);
+  assert.match(headingText(result.html), /<h1>1 Intro<\/h1>/);
+  assert.match(headingText(result.html), /<h2>1\.1 Detail<\/h2>/);
   assert.match(result.html, /class=\"MathJax\"/);
   assert.match(result.html, /callout-plain/);
 });
@@ -182,7 +186,7 @@ test("keeps adjacent Callouts as separate environments", () => {
 
 test("does not number the generated document title or duplicate it in the TOC", () => {
   const result = compile("---\nmathmd:\n  meta:\n    title: Sample\n---\n<maketitle />\n<maketoc />\n# Heading\n");
-  assert.match(result.html, /<h1 class=\"document-title-heading\">Sample<\/h1>/);
+  assert.match(headingText(result.html), /<h1 class=\"document-title-heading\">Sample<\/h1>/);
   assert.doesNotMatch(result.html, /document-title-heading[^>]*>1\. Sample/);
   assert.doesNotMatch(result.html, /<nav class=\"table-of-contents\">[\s\S]*Sample/);
 });
@@ -193,12 +197,12 @@ test("indents nested TOC entries and respects toc-depth", () => {
   assert.match(result.html, /<li class=\"toc-level-2\">/);
   assert.doesNotMatch(result.html, /<nav class=\"table-of-contents\">[\s\S]*toc-level-3/);
   assert.match(result.html, /\.toc-level-2\{padding-left:1\.5em\}/);
-  assert.match(result.html, /<h2 class=\"toc-title\">Contents<\/h2>/);
+  assert.match(headingText(result.html), /<h2 class=\"toc-title\">Contents<\/h2>/);
 });
 
 test("allows configuring the table of contents heading", () => {
   const result = compile("---\nmathmd:\n  layout:\n    heading:\n      toc: Inhaltsverzeichnis\n---\n<maketoc />\n# Heading\n");
-  assert.match(result.html, /<h2 class=\"toc-title\">Inhaltsverzeichnis<\/h2>/);
+  assert.match(headingText(result.html), /<h2 class=\"toc-title\">Inhaltsverzeichnis<\/h2>/);
 });
 
 test("supports root YAML, imports, last-wins values, and equation labels", () => {
@@ -223,7 +227,7 @@ test("rejects unknown counter formats and imported command collisions", () => {
 test("applies heading and callout attributes and diagnoses unresolved references", () => {
   const result = compile("# Intro {#intro .lead}\n\n> [!remark] Note {#note .warning}\n> Body\n\n[](#missing)\n");
   assert.equal(result.diagnostics.items.filter((item) => item.code === "UNRESOLVED_REFERENCE").length, 1);
-  assert.match(result.html, /<h1 id=\"intro\" class=\"lead\">/);
+  assert.match(headingText(result.html), /<h1 id=\"intro\" class=\"lead\">/);
   assert.match(result.html, /id=\"note\" class=\"callout callout-plain warning\"/);
   assert.match(result.html, /diagnostic-missing/);
 });
@@ -309,7 +313,7 @@ test("allows rich Callout contents and nested Callouts", () => {
 
 test("unnumbered headings do not advance or reset heading counters", () => {
   const result = compile("# A\n\n## A1\n\n#: B\n\n## B1\n\n# C\n");
-  assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. A</h1>", "<h2>1.1. A1</h2>", "<h1>B</h1>", "<h2>1.2. B1</h2>", "<h1>2. C</h1>"]);
+  assert.deepEqual(headingText(result.html).match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1 A</h1>", "<h2>1.1 A1</h2>", "<h1>B</h1>", "<h2>1.2 B1</h2>", "<h1>2 C</h1>"]);
 });
 
 test("scoped counters restart at each heading of their scope and print heading numbers", () => {
@@ -339,7 +343,7 @@ test("scoped counters restart at each heading of their scope and print heading n
 test("an appendix restarts top-level headings and letters them", () => {
   const result = compile("---\nmathmd:\n  layout:\n    callouts:\n      theorem:\n        title: \"Theorem {h1.arabic}.{h1 > theorem.arabic}.\"\n---\n# One\n\n## Sub\n\n<appendix />\n\n# Proofs\n\n## Details\n\n> [!theorem]\n> A.\n\n# More\n");
   assert.deepEqual(result.diagnostics.items, []);
-  assert.deepEqual(result.html.match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1. One</h1>", "<h2>1.1. Sub</h2>", "<h1>A. Proofs</h1>", "<h2>A.1. Details</h2>", "<h1>B. More</h1>"]);
+  assert.deepEqual(headingText(result.html).match(/<h[12]>[^<]*<\/h[12]>/g), ["<h1>1 One</h1>", "<h2>1.1 Sub</h2>", "<h1>A Proofs</h1>", "<h2>A.1 Details</h2>", "<h1>B More</h1>"]);
   assert.match(result.html, /Theorem A\.1\./);
 });
 
@@ -352,15 +356,15 @@ test("report and book number chapters, and figures, tables, and equations within
     assert.deepEqual(result.diagnostics.items, [], documentClass);
     assert.match(result.html, /<body class="mathmd-class-[a-z]+">/);
     assert.match(result.html, /<h1 id="ch:intro" class="chapter" data-mathmd-toc-number="1"><span class="heading-number">Chapter 1<\/span> Intro<\/h1>/);
-    assert.match(result.html, /<h2[^>]*>1\.1\. Scope<\/h2>/);
+    assert.match(headingText(result.html), /<h2[^>]*>1\.1 Scope<\/h2>/);
     assert.match(result.html, /<span class="heading-number">Appendix A<\/span> Proofs/);
-    assert.match(result.html, /<h2[^>]*>A\.1\. Lemma<\/h2>/);
+    assert.match(headingText(result.html), /<h2[^>]*>A\.1 Lemma<\/h2>/);
     assert.match(result.html, />\(1\.1\)<\/span>/);
     assert.match(result.html, />\(2\.1\)<\/span>/);
-    assert.match(result.html, /Figure 1\.1\. Pic/);
+    assert.match(result.html, /Figure 1\.1: Pic/);
     assert.match(result.html, /href="#eq:y">\(2\.1\)<\/a> <a href="#fig:a">Figure 1\.1<\/a>/);
-    assert.match(result.html, /<a href="#ch:intro">1 Intro<\/a>/, "the table of contents lists the bare chapter number");
-    assert.match(result.html, /<a href="#mathmd-section-\d+">A Proofs<\/a>/);
+    assert.match(result.html, /<a href="#ch:intro"><span class="heading-number">1<\/span> Intro<\/a>/, "the table of contents lists the bare chapter number");
+    assert.match(result.html, /<a href="#mathmd-section-\d+"><span class="heading-number">A<\/span> Proofs<\/a>/);
   }
 });
 
@@ -369,25 +373,25 @@ test("Japanese chapter classes follow ltjsreport and ltjsbook", () => {
   assert.deepEqual(result.diagnostics.items, []);
   assert.match(result.html, /<span class="heading-number">第1章<\/span> 序論/);
   assert.match(result.html, /<span class="heading-number">付録A<\/span> 証明/);
-  assert.match(result.html, />第1章 序論<\/a>/, "Japanese tables of contents keep the chapter label");
+  assert.match(result.html, />第1章<\/span> 序論<\/a>/, "Japanese tables of contents keep the chapter label");
   assert.match(result.html, />式 \(1\.1\)<\/a>/);
 });
 
 test("book front and back matter chapters are unnumbered, and matter directives need the book class", () => {
   const result = compile("---\nmathmd:\n  layout:\n    class: book\n---\n<frontmatter />\n\n# Preface\n\n## Thanks\n\n<mainmatter />\n\n# First\n\n## Part\n\n<backmatter />\n\n# Index\n\n## Terms\n");
   assert.deepEqual(result.diagnostics.items, []);
-  assert.match(result.html, /<h1 class="chapter">Preface<\/h1>/);
+  assert.match(headingText(result.html), /<h1 class="chapter">Preface<\/h1>/);
   assert.match(result.html, /<span class="heading-number">Chapter 1<\/span> First/);
-  assert.match(result.html, /<h1 class="chapter">Index<\/h1>/);
-  assert.match(result.html, /<h2>0\.1\. Thanks<\/h2>/);
-  assert.match(result.html, /<h2>1\.1\. Part<\/h2>/);
-  assert.match(result.html, /<h2>0\.1\. Terms<\/h2>/, "back matter headings count from chapter 0, as in the front matter");
+  assert.match(headingText(result.html), /<h1 class="chapter">Index<\/h1>/);
+  assert.match(headingText(result.html), /<h2>0\.1 Thanks<\/h2>/);
+  assert.match(headingText(result.html), /<h2>1\.1 Part<\/h2>/);
+  assert.match(headingText(result.html), /<h2>0\.1 Terms<\/h2>/, "back matter headings count from chapter 0, as in the front matter");
   assert.match(result.html, /<div class="mathmd-directive mathmd-frontmatter"><\/div>/);
   const report = compile("---\nmathmd:\n  layout:\n    class: report\n---\n<frontmatter />\n\n# A\n\n<appendix />\n\n# B\n\n<appendix />\n\n# C\n");
   assert.deepEqual(report.diagnostics.items.map((item) => item.code).sort(), ["BOOK_ONLY_DIRECTIVE", "DUPLICATE_APPENDIX"]);
   assert.match(report.html, /Chapter 1<\/span> A/, "the matter directives have no effect outside the book class");
   assert.match(report.html, /Appendix B<\/span> C/, "a second <appendix /> does not restart the lettering");
-  assert.match(compile("---\nmathmd:\n  layout:\n    class: article\n---\n# A\n").html, /<h1>1\. A<\/h1>/);
+  assert.match(headingText(compile("---\nmathmd:\n  layout:\n    class: article\n---\n# A\n").html), /<h1>1 A<\/h1>/);
 });
 
 test("keeps closing punctuation on the line of the inline math before it", () => {
@@ -402,7 +406,7 @@ test("leaves directives, Callouts, and heading attributes inside fenced code lit
   assert.deepEqual(result.diagnostics.items, []);
   assert.match(result.html, /&lt;appendix \/&gt;\n&lt;pagebreak \/&gt;\n&gt; \[!theorem\] \{#thm:x\}\n# Two \{#sec:two\}/);
   assert.match(result.html, /&lt;maketoc \/&gt;\n~~~/, "a shorter fence does not close a longer one");
-  assert.match(result.html, /<h1>2\. Three<\/h1>/, "the <appendix /> example does not letter later headings");
+  assert.match(headingText(result.html), /<h1>2 Three<\/h1>/, "the <appendix /> example does not letter later headings");
   assert.doesNotMatch(result.html, /mathmd-directive|class="callout/);
 });
 
@@ -424,7 +428,7 @@ test("resolves TeX references to equations later in the document", () => {
 test("headings inside a Callout are not numbered, listed, or treated as chapters", () => {
   const result = compile("---\nmathmd:\n  layout:\n    class: report\n---\n<maketoc />\n\n# One\n\n> [!remark]\n> # Aside {#aside}\n> Text.\n\n# Two\n\n[](#aside)\n");
   assert.deepEqual(result.diagnostics.items, []);
-  assert.match(result.html, /<h1 data-mathmd-nested="" id="aside">Aside<\/h1>/);
+  assert.match(headingText(result.html), /<h1 data-mathmd-nested="" id="aside">Aside<\/h1>/);
   assert.match(result.html, /Chapter 2<\/span> Two/);
   assert.doesNotMatch(result.html, /toc-level-1"><a href="#aside"/);
   assert.match(result.html, /href="#aside">Aside<\/a>/);
@@ -433,7 +437,7 @@ test("headings inside a Callout are not numbered, listed, or treated as chapters
 test("ignores directives inside HTML comments", () => {
   const result = compile("# One\n\n<!--\n<appendix />\n\n<mainmatter />\n\n> [!theorem] {#thm:x}\n-->\n\n# Two\n");
   assert.deepEqual(result.diagnostics.items, []);
-  assert.match(result.html, /<h1>2\. Two<\/h1>/);
+  assert.match(headingText(result.html), /<h1>2 Two<\/h1>/);
   assert.doesNotMatch(result.html, /mathmd-directive|class="callout/);
 });
 
@@ -441,7 +445,7 @@ test("keeps structure directives inside a Callout literal", () => {
   const result = compile("> [!remark]\n> <appendix />\n\n# One\n");
   assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["NESTED_STRUCTURE_DIRECTIVE"]);
   assert.match(result.html, /&lt;appendix \/&gt;/);
-  assert.match(result.html, /<h1>1\. One<\/h1>/);
+  assert.match(headingText(result.html), /<h1>1 One<\/h1>/);
 });
 
 test("prints heading and Callout references with their reference formats", () => {
@@ -459,7 +463,7 @@ test("prints heading and Callout references with their reference formats", () =>
   assert.match(result.html, /href="#thm:a">see<\/a>/);
   const scoped = compile("---\nmathmd:\n  layout:\n    heading:\n      h2: \"{h1.arabic}-{h1 > h2.arabic}\"\n      reference:\n        h2: \"Section {h1 > h2.Alph}\"\n---\n# One\n\n## Sub {#sec:sub}\n\n## Next {#sec:next}\n\n[](#sec:next)\n");
   assert.deepEqual(scoped.diagnostics.items, []);
-  assert.match(scoped.html, />1-2 Next<\/h2>/, "scoped placeholders print their last counter");
+  assert.match(scoped.html, />1-2<\/span> Next<\/h2>/, "scoped placeholders print their last counter");
   assert.match(scoped.html, /href="#sec:next">Section B<\/a>/);
   const defaults = compile("# Intro {#intro}\n\n[](#intro)\n");
   assert.match(defaults.html, /href="#intro">Intro<\/a>/, "headings print their text by default, as before");
@@ -481,7 +485,7 @@ test("renders numbered figures and resolves figure references", () => {
   const result = compile("![Sample image](image.svg){#fig:sample}\n\nSee [](#fig:sample).\n", path.join(directory, "document.md"));
   assert.equal(result.diagnostics.hasErrors, false);
   assert.match(result.html, /<figure id=\"fig:sample\" class=\"figure\">/);
-  assert.match(result.html, /Figure 1\. Sample image/);
+  assert.match(result.html, /Figure 1: Sample image/);
   assert.match(result.html, /href=\"#fig:sample\">Figure 1<\/a>/);
 });
 
@@ -508,7 +512,7 @@ test("renders numeric bibliography labels without list bullets", () => {
   assert.match(result.html, /reference-label">\[2\]<\/span>/);
   assert.match(result.html, /\.references\{list-style:none/);
   const sectioned = compile(source.replace("[@one", "# Intro\n\n[@one"), path.join(directory, "document.md"));
-  assert.match(sectioned.html, /<h2>References<\/h2>/, "the bibliography heading is unnumbered, as in LaTeX");
+  assert.match(headingText(sectioned.html), /<h2>References<\/h2>/, "the bibliography heading is unnumbered, as in LaTeX");
 });
 
 test("rejects duplicate IDs and citations without a references directive", () => {
@@ -902,8 +906,8 @@ test("captions and numbers tables with Pandoc's caption syntax and keeps adjacen
   assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
   assert.equal((result.html.match(/<table\b/g) ?? []).length, 3);
   assert.doesNotMatch(result.html, /<td>---<\/td>|<p>(?:Table)?:/);
-  assert.match(result.html, /<table id="tbl:two" class="mathmd-table"><caption class="table-caption">Table 1\. Second table\.<\/caption>/);
-  assert.match(result.html, /<caption class="table-caption">Table 2\. Before its table\.<\/caption>/);
+  assert.match(result.html, /<table id="tbl:two" class="mathmd-table"><caption class="table-caption">Table 1: Second table\.<\/caption>/);
+  assert.match(result.html, /<caption class="table-caption">Table 2: Before its table\.<\/caption>/);
   assert.match(result.html, /<a href="#tbl:two">Table 1<\/a>/);
 });
 
@@ -929,8 +933,8 @@ test("uses language defaults and reference templates for generated text", () => 
   const english = compile(source, file);
   assert.equal(english.diagnostics.items.length, 0, JSON.stringify(english.diagnostics.items));
   assert.match(english.html, /toc-title">Contents</);
-  assert.match(english.html, /Table 1\. T<\/caption>/);
-  assert.match(english.html, /Figure 1\. F<\/figcaption>/);
+  assert.match(english.html, /Table 1: T<\/caption>/);
+  assert.match(english.html, /Figure 1: F<\/figcaption>/);
   assert.match(english.html, /<a href="#tbl:t">Table 1<\/a> <a href="#fig:f">Figure 1<\/a> <a href="#eq:x">\(1\)<\/a>/);
   const japanese = compile("---\nmathmd:\n  meta:\n    language: ja\n---\n" + source, file);
   assert.match(japanese.html, /toc-title">目次</);
@@ -948,7 +952,7 @@ test("prints every counter format that templates accept", () => {
   const result = compile("---\nmathmd:\n  layout:\n    heading:\n      numbered: true\n      h1: \"{h1.Roman}.\"\n    equation:\n      numbered: true\n      display: \"[{equation.roman}]\"\n      reference: \"Eq. {equation.roman}\"\n    figure:\n      display: \"Fig. {figure.alph}.\"\n      reference: \"Fig. {figure.alph}\"\n    table:\n      display: \"Table {table.Alph}.\"\n      reference: \"Table {table.Alph}\"\n    callouts:\n      theorem:\n        title: \"Theorem {theorem.roman}.\"\n---\n# A\n\n# B\n\n$$\nx \\\\\ny \\label{eq:y}\n$$\n\n![F](assets/phase1.5.svg){#fig:f}\n\n| x |\n|---|\n| 1 |\n\n: T {#tbl:t}\n\n> [!theorem]\n> Body.\n\n> [!theorem]\n> Body.\n\n[](#eq:y) [](#fig:f) [](#tbl:t)\n", path.resolve("examples/document.md"));
   assert.equal(result.diagnostics.items.length, 0, JSON.stringify(result.diagnostics.items));
   assert.doesNotMatch(result.html, /\{[a-z0-9]+\.[A-Za-z]+\}/, "no placeholder is left unrendered");
-  assert.match(result.html, /<h1[^>]*>II\. B<\/h1>/);
+  assert.match(headingText(result.html), /<h1[^>]*>II\. B<\/h1>/);
   assert.match(result.html, /class="equation-number"[^>]*>\[ii\]<\/span>/);
   assert.match(result.html, /Fig\. a\. F<\/figcaption>/);
   assert.match(result.html, /Table A\. T<\/caption>/);

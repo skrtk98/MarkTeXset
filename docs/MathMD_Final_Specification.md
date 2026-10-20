@@ -214,7 +214,7 @@ mathmd:
   layout:
     class: article
     size: A4
-    margins: 25mm
+    # margins: 省略時は LaTeX の版面（下記）。25mm や {top, right, bottom, left} で上書きできる
     paginate: true
     page:
       number:
@@ -230,9 +230,9 @@ mathmd:
       numbering-depth: 3
       toc-depth: 3
       toc: Contents
-      h1: "{h1.arabic}."
-      h2: "{h1.arabic}.{h2.arabic}."
-      h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}."
+      h1: "{h1.arabic}"
+      h2: "{h1.arabic}.{h2.arabic}"
+      h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}"
   preview:
     math-inspector:
       enabled: true
@@ -256,11 +256,11 @@ mathmd:
       reference: "({equation.arabic})"
     figure:
       numbered: true
-      display: "Figure {figure.arabic}."
+      display: "Figure {figure.arabic}:"
       reference: "Figure {figure.arabic}"
     table:
       numbered: true
-      display: "Table {table.arabic}."
+      display: "Table {table.arabic}:"
       reference: "Table {table.arabic}"
 ```
 
@@ -274,11 +274,11 @@ mathmd:
 
 | 設定 | `article` | `report` / `book`（英語） | `report` / `book`（日本語） |
 |---|---|---|---|
-| `layout.heading.h1` | `{h1.arabic}.` | `Chapter {h1.arabic}` | `第{h1.arabic}章` |
-| `layout.heading.h2` / `h3` | `{h1.arabic}.{h2.arabic}.` など | 同左 | 同左 |
+| `layout.heading.h1` | `{h1.arabic}` | `Chapter {h1.arabic}` | `第{h1.arabic}章` |
+| `layout.heading.h2` / `h3` | `{h1.arabic}.{h2.arabic}` など | 同左 | 同左 |
 | `layout.heading.appendix` | `layout.heading.h1` と同じ | `Appendix {h1.arabic}` | `付録{h1.arabic}` |
-| `layout.figure.display` | `Figure {figure.arabic}.` | `Figure {h1.arabic}.{h1 > figure.arabic}.` | `図 {h1.arabic}.{h1 > figure.arabic}` |
-| `layout.table.display` | `Table {table.arabic}.` | `Table {h1.arabic}.{h1 > table.arabic}.` | `表 {h1.arabic}.{h1 > table.arabic}` |
+| `layout.figure.display` | `Figure {figure.arabic}:` | `Figure {h1.arabic}.{h1 > figure.arabic}:` | `図 {h1.arabic}.{h1 > figure.arabic}` |
+| `layout.table.display` | `Table {table.arabic}:` | `Table {h1.arabic}.{h1 > table.arabic}:` | `表 {h1.arabic}.{h1 > table.arabic}` |
 | `layout.equation.display` | `({equation.arabic})` | `({h1.arabic}.{h1 > equation.arabic})` | 同左 |
 | `citation.heading` | `References` / level 2 | `Bibliography` / level 1 | `参考文献` / level 1 |
 | `layout.page.style` | `plain` | `report` は `plain`、`book` は `headings` | 同左 |
@@ -287,7 +287,7 @@ mathmd:
 
 - 章は新しいページから始める。章や目次の直前の `<pagebreak />` は、LaTeX の `\chapter` の前の `\newpage` と同じく空白ページを作らない。`book` は両面組で、章は右ページ（奇数ページ）から始め、必要なら直前に空白の左ページを入れる。空白ページには柱もページ番号も出さず、空白ページの診断の対象にもしない。
 - `<maketitle />` の表題は独立したページに組み（`book` では裏も空白にする）、表題ページにはページ番号を出さない。次のページからページ番号を 1 に戻す。目次も新しいページ（`book` では右ページ）から始める。
-- `book` の `headings` は見開きの柱とする。左ページは左上にページ番号、右上に章を、右ページは左上に節、右上にページ番号を出し、下のページ番号は出さない。章の最初のページと目次の最初のページは LaTeX の `\chapter` と同じく `plain` とする。`layout.margins` に `left` と `right` を指定した場合、`left` をのど側、`right` を小口側とし、左ページでは左右を入れ替える。
+- `book` の `headings` は見開きの柱とする。左ページは左上にページ番号、右上に章を、右ページは左上に節、右上にページ番号を出す。`report` の柱は章とする。章の最初のページと目次の最初のページは LaTeX の `\chapter` と同じく `plain` とする。日本語の `book` の `plain` は jsbook と同じく、ページ番号を下ではなく上の小口側に出す。`layout.margins` に `left` と `right` を指定した場合、`left` をのど側、`right` を小口側とし、左ページでは左右を入れ替える。
 - 見出しの大きさは章 2.488em（`\Huge`）、章番号 2.074em（`\huge`）、節 1.44em、小節 1.2em とする。
 
 `book` では次の制御要素で前付け・本文・後付けを切り替える。前付けと後付けの章には番号を付けない（下位の見出しは章番号を 0 として番号を付ける）。前付けのページ番号は小文字のローマ数字とし、`<mainmatter />` のページから算用数字の 1 に戻す。目次のページ番号も同じ形式で表示する。`report` と `article` でこれらを使うとエラー `BOOK_ONLY_DIRECTIVE` とする。
@@ -518,15 +518,32 @@ Preview限定でヘッダー右側にコピーボタンを表示する。コピ�
 
 診断メッセージは英語固定。JSON の必須フィールドは `severity`、`code`、`message`、`location.file`、`location.start`、`location.end`。位置は Unicode code point の1始まり、`end` は排他的。診断順はエラー、警告の順にし、各グループ内は文書位置順とする。候補表示は編集距離2以下・最大3件。
 
-既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。欧文は Latin Modern Roman 10 / Mono 10、和文は原ノ味明朝 Regular、和文の太字は TeX の和文組版に倣って原ノ味角ゴシック Medium とし、和文の斜体は正体のままとする。数式は MathJax の TeX フォント（Computer Modern 系の SVG グリフ）で描画し、これを Latin Modern Math 相当とみなす。フォントは本体に同梱せず、`marktexset fonts install` が CTAN と原ノ味フォントの固定タグから取得し、固定した SHA-256 を検証してユーザーキャッシュ（`MARKTEXSET_FONT_DIR`、`$XDG_CACHE_HOME/marktexset/fonts`、`~/.cache/marktexset/fonts` の順）に置く。Chromium は CFF アウトラインのフォントを PDF に Type 3 として埋め込むため、`fonts install` は取得後に各フォントのアウトラインを TrueType の二次曲線（誤差 1 font unit 以内）に変換し、cmap、メトリクス、GSUB、GPOS などの他のテーブルはそのまま残した `.ttf` を同じディレクトリに置く。PDF には CID TrueType として埋め込まれる。PDF と Preview は取得済みフォントを `@font-face` で読み込み、未取得の場合は `FONT_NOT_INSTALLED` を警告してシステムフォントで組む。HTML 出力はフォントを埋め込まず、同名のローカルフォントを参照する。フォント取得は文書の外部ネットワーク制限の対象外の、利用者が明示的に実行する導入手順である。
+既定フォントは Latin Modern、Harano Aji、Latin Modern Math 相当。欧文は Latin Modern Roman 10 / Mono 10、和文は原ノ味明朝 Regular、和文の太字は TeX の和文組版に倣って原ノ味角ゴシック Medium とし、和文の斜体は正体のままとする。日本語の見出し・目次の第 1 レベル・柱は jsclasses の `\headfont` に倣い、欧文を Latin Modern Sans 10、和文を原ノ味角ゴシック Medium とし、太字にしない。和文フォントは LuaTeX-ja の ltjs クラスと同じく欧文の 0.924715 倍（10pt に対して 13Q）の大きさで組む（`size-adjust`）。数式は MathJax の TeX フォント（Computer Modern 系の SVG グリフ）で描画し、これを Latin Modern Math 相当とみなす。フォントは本体に同梱せず、`marktexset fonts install` が CTAN と原ノ味フォントの固定タグから取得し、固定した SHA-256 を検証してユーザーキャッシュ（`MARKTEXSET_FONT_DIR`、`$XDG_CACHE_HOME/marktexset/fonts`、`~/.cache/marktexset/fonts` の順）に置く。Chromium は CFF アウトラインのフォントを PDF に Type 3 として埋め込むため、`fonts install` は取得後に各フォントのアウトラインを TrueType の二次曲線（誤差 1 font unit 以内）に変換し、cmap、メトリクス、GSUB、GPOS などの他のテーブルはそのまま残した `.ttf` を同じディレクトリに置く。PDF には CID TrueType として埋め込まれる。PDF と Preview は取得済みフォントを `@font-face` で読み込み、未取得の場合は `FONT_NOT_INSTALLED` を警告してシステムフォントで組む。HTML 出力はフォントを埋め込まず、同名のローカルフォントを参照する。フォント取得は文書の外部ネットワーク制限の対象外の、利用者が明示的に実行する導入手順である。
 
-本文の組版規則は TeX の `article` / `ltjsarticle` に揃える。全出力で段落・リスト・Callout 本文を両端揃えにし、`meta.language` に応じたハイフネーション（`hyphens: auto`）と、和文の禁則（`line-break: strict`）・和欧文間のアキ（`text-autospace`）・約物の詰め（`text-spacing-trim`）を適用する。PDF では本文 10pt、行送りを欧文 1.4・和文 1.7 とし、段落間の空きを設けず字下げで段落を区切る。欧文は見出し直後の段落を字下げせず（1.5em）、和文は見出し直後も含めて全角 1 字下げる。段落はページをまたいで分割してよく、孤立行は `orphans` / `widows` で 2 行以上を保つ。
+本文の組版規則は TeX の `article` / `ltjsarticle` に揃える。全出力で段落・リスト・Callout 本文を両端揃えにし、`meta.language` に応じたハイフネーション（`hyphens: auto`）と、和文の禁則（`line-break: strict`）・和欧文間のアキ（`text-autospace`）・約物の詰め（`text-spacing-trim`）を適用する。PDF では本文 10pt（TeX の pt。CSS では 72/72.27 倍）、行送りを欧文 12pt・和文 16pt とし、段落間の空きを設けず字下げで段落を区切る。欧文は見出し直後の段落を字下げせず（1.5em）、和文は見出し直後も含めて全角 1 字下げる。文書の最初の段落や、表・数式などの後の段落も LaTeX と同じく字下げする。段落はページをまたいで分割してよく、孤立行は `orphans` / `widows` で 2 行以上を保つ。
 
-PDF の英文段落（`lang` が `en` で始まり、和文を含まない段落）は、`layout.line-break: optimal`（既定）のとき Knuth–Plass 法で行分割する。ページ分割の前に本文幅の 1 段組で文書を組み、語の幅を実測して、行の伸縮率から求めた badness、行ペナルティ 10、ハイフンペナルティ 50、連続ハイフン 10000、最終行直前のハイフン 5000、隣接する行の密度差 10000 の各デメリットの総和が最小になる改行位置を選ぶ（TeX の `\tolerance` に相当する許容伸縮率は 1、見つからなければ 2、10 の順に緩め、ハイフネーションは 2 回目以降だけ許す）。ハイフネーション候補は TeX の米国英語パターンから、語頭 2 字・語末 3 字以上を残す位置に限る。選んだ各行は個別のブロックとして両端揃えにし、4 行以上の段落は最初と最後の行の前後で改ページしない。行末の句読点とハイフンは microtype の既定値に倣って右余白へ突き出す（`.` `-` `'` は字幅の 0.7、`,` `:` `;` `"` は 0.5、`–` は 0.3、`—` `!` `?` は 0.2）。突き出す量だけ行の目標幅を広げて改行位置を選ぶ。インラインコードと脚注参照は分割しない。和文、表のセル、図、脚注本文は対象外で、ブラウザの行分割に従う。`layout.line-break: browser` はこの処理を行わない。その他の値は `UNSUPPORTED_LINE_BREAK` エラーとする。Preview と HTML 出力はブラウザの行分割に従う。
+`layout.margins` を省略した A4 の PDF は、LaTeX の標準クラス（10pt、`a4paper`）の版面を TeX から読み取った値で再現する。`article` と `report` は `article`、`book` は `book`、日本語ではそれぞれ `ltjsarticle` と `ltjsbook` の値を使う。
+
+| 版面 | 左余白（右ページ / 左ページ） | 本文幅 | 本文上端 | 行送り・行数 | `\headsep` | `\footskip` |
+|---|---|---|---|---|---|---|
+| `article` | 125.27pt | 345pt | 126.27pt | 12pt × 50 行 | 25pt | 30pt |
+| `book` | 100.27pt / 151.27pt | 345pt | 125.34pt | 12pt × 50 行 | 18.07pt | 25.29pt |
+| `ltjsarticle` | 72.2pt | 453.11pt（49 字） | 112.72pt | 16pt × 40 行 | 15.7pt | 28.46pt |
+| `ltjsbook` | 53.7pt / 173.92pt | 369.89pt | 110.25pt | 16pt × 42 行 | 14.31pt | 28.46pt |
+
+1 行目のベースラインを本文上端から `\topskip`（欧文 10pt、和文 12.76pt）の位置に、柱のベースラインを本文上端から `\headsep` 上に、ページ番号のベースラインを最終行のベースラインから `\footskip` 下に置く。柱とページ番号は 10pt とする。そのほかの要素も LaTeX の既定に揃える。
+
+- 見出しは `\section`・`\subsection`・`\subsubsection` と同じく 14.4pt・12pt・10pt の太字とし、前後の空きも LaTeX と同じにする。番号と題目の間は全角（quad）空ける。日本語の見出しは jsclasses と同じく行送りの整数倍の位置に置く。
+- `<maketitle />` の表題は `\maketitle` と同じく、`\LARGE` の題目、`\large` の著者と日付を中央に置く（太字にしない）。
+- 脚注は `\footnotesize`（8pt、行送り 9.5pt）とし、英語は上付きの番号を幅 1.8em の箱の右端に置く。日本語は jsclasses と同じく本文側・脚注側とも `*1` の形の合印とし、脚注を全角 3 字下げて合印をその前に置く。
+- 表は列の間を `\tabcolsep`（6pt）空け、見出し行を太字にしない。罫線は booktabs と同じく表の上下と見出し行の下に引く。キャプション付きの表は LaTeX の `table` 環境と同じく、キャプションを表の上に本文幅いっぱいに置き、図と同じくページ上端へのフロートとする。フロートと本文の間は `\textfloatsep`（20pt）空ける。
+- `headings` の柱は LaTeX と同じく左に見出し、右にページ番号を出し、下のページ番号を出さない。英語の見出しは斜体の大文字とする。日本語は jsclasses と同じく正体で、ページ番号を太字にし、柱の下に罫線を引く。`article` の表題のページは `plain` とし、日本語では jsarticle と同じくページ番号だけを右上に出す。
+
+PDF の英文段落（`lang` が `en` で始まり、和文を含まない段落）は、`layout.line-break: optimal`（既定）のとき Knuth–Plass 法で行分割する。ページ分割の前に本文幅の 1 段組で文書を組み、語の幅を実測して、行の伸縮率から求めた badness、行ペナルティ 10、ハイフンペナルティ 50、連続ハイフン 10000、最終行直前のハイフン 5000、隣接する行の密度差 10000 の各デメリットの総和が最小になる改行位置を選ぶ（TeX の `\tolerance` に相当する許容伸縮率は 1、見つからなければ 2、10 の順に緩め、ハイフネーションは 2 回目以降だけ許す）。ハイフネーション候補は TeX の米国英語パターンから、語頭 2 字・語末 3 字以上を残す位置に限る。語間の空白は TeX の `\nonfrenchspacing` の space factor に従う。文末の `.` `?` `!`（大文字の直後を除く）の後は空白を 1/3 広げて伸びを 3 倍に、`:` の後は 1/3 広げて伸びを 2 倍に、`;` と `,` の後は伸びをそれぞれ 1.5 倍、1.25 倍にする（縮みはその逆数倍）。選んだ各行は個別のブロックとして両端揃えにし、4 行以上の段落は最初と最後の行の前後で改ページしない。行末の句読点とハイフンは microtype の既定値に倣って右余白へ突き出す（`.` `-` `'` は字幅の 0.7、`,` `:` `;` `"` は 0.5、`–` は 0.3、`—` `!` `?` は 0.2）。突き出す量だけ行の目標幅を広げて改行位置を選ぶ。インラインコードと脚注参照は分割しない。和文、表のセル、図、脚注本文は対象外で、ブラウザの行分割に従う。`layout.line-break: browser` はこの処理を行わない。その他の値は `UNSUPPORTED_LINE_BREAK` エラーとする。Preview と HTML 出力はブラウザの行分割に従う。
 
 インライン数式は、TeX と同じく最上位の関係演算子（`=`、`<`、`\le`、`\to`、`\in` など）と二項演算子（`+`、`-`、`\times`、`\cdot` など）の直後で改行してよい。波括弧・括弧・`\left...\right`・絶対値記号・環境の内側、単項の符号、上付き・下付きを伴う演算子、連続する演算子の間では分割しない。`\over`、スタイル切替、`\color`、`\not` などを含む数式は分割しない。分割した各部分は別の SVG にし、演算子の後の空きは TeX の thick space（5mu）と medium space（4mu）の幅の空白として置く。改行位置ではこの空白が消える。Knuth–Plass 法ではこの空白に `\relpenalty` 500 と `\binoppenalty` 700 を課す。和文段落と HTML 出力ではブラウザがこの空白で改行する。支援技術向けの MathML は数式全体を 1 つだけ出力する。
 
-PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。目次のページ番号は `layout.page.number.format` のカウンター形式（`{page.Roman}` なら `IV`）で、書式のほかの文字は付けない。`report` と `book` ではページ番号を途中で 1 に戻すが、Vivliostyle の `target-counter()` は戻した後のすべての見出しに戻した値を返すため、ページ分割の後にページを数えて目次の番号を書き込む。`article` と同様に第 1 レベルの項目は太字でリーダーを付けない。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。
+PDF の目次は各項目に点線のリーダーとページ番号を付ける（`target-counter()`）。目次のページ番号は `layout.page.number.format` のカウンター形式（`{page.Roman}` なら `IV`）で、書式のほかの文字は付けない。`report` と `book` ではページ番号を途中で 1 に戻すが、Vivliostyle の `target-counter()` は戻した後のすべての見出しに戻した値を返すため、ページ分割の後にページを数えて目次の番号を書き込む。`article` と同様に第 1 レベルの項目は 1em 空けて太字にし、リーダーを付けない。目次の題は `\section*` と同じ大きさとし、項目は LaTeX と同じく 0・1.5em・3.8em 字下げして、番号を幅 1.5em・2.3em・3.2em の箱に置く。リーダーは `\@dottedtocline` と同じく 4.5mu ずつ空けた点とする。日本語では jsclasses と同じく各項目の題目の位置を揃える。目次に載る見出しのうち ID のないものには `mathmd-section-N` の ID を自動で付け、すべての項目を見出しへのリンクにする（HTML 出力も同じ）。PDF には見出しから作るしおり（アウトライン）とタグ構造を入れ、`meta.language` を文書の言語、`meta.title` と `meta.author` の名前を Title と Author に設定する。`<maketitle />` の表題は見出しではないため、PDF ではしおり・柱・タグ構造の見出しに含めない。
 
 PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置し、入らなければ次ページの上端へ送る（CSS page float の `float: top`）。表は Pandoc の LaTeX 出力と同じく booktabs 型の罫線（上下の太罫と見出し行の下罫）で組み、見出しは表の上に置く。罫線は詳細度 0 で指定するため、利用者の表スタイルが優先する。コードブロックと Callout はページをまたいで分割してよく、前後に 3 行以上を残す。外部ネットワークは既定で禁止し、許可時も root の `network.allow: true` と明示ドメイン、HTTPS を要求する。JavaScript、iframe、embed、include は常に禁止する。外部リソースは URL と内容ハッシュをキャッシュし、リセットオプションを備える。
 
@@ -665,7 +682,7 @@ PDF の図は LaTeX の既定配置 `[tbp]` に倣い、ページ上端へ配置
 
 ### 組版品質の評価
 
-組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプルで測る。散文のサンプル（`examples/quality/prose.en.md`、`prose.ja.md`）、図・表・行列を含む別行立て数式・番号付きリスト・コード・脚注を含むサンプル（`structure.en.md`、`structure.ja.md`）、`report` クラスで章立てしたサンプル（`chapters.en.md`、`chapters.ja.md`）を英日それぞれに用意する。baseline は同じクラス（`report` は `report` / `ltjsreport`）で、Pandoc の `--number-sections` と、章立てのクラスでは `--top-level-division=chapter` を付けて組む。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。SVG の数式は文字をもたず行が分断されるため、高さの大半が重なる断片を 1 行にまとめてから数える。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
+組版品質は、Pandoc と MarkTeXset が同じように解釈できる標準 Markdown だけで書いた品質サンプルで測る。散文のサンプル（`examples/quality/prose.en.md`、`prose.ja.md`）、図・表・行列を含む別行立て数式・番号付きリスト・コード・脚注を含むサンプル（`structure.en.md`、`structure.ja.md`）、`report` クラスで章立てしたサンプル（`chapters.en.md`、`chapters.ja.md`）を英日それぞれに用意する。baseline は同じクラス（`report` は `report` / `ltjsreport`）で、Pandoc の `--number-sections` と、章立てのクラスでは `--top-level-division=chapter` を付け、A4 判（`-V papersize=a4`）・LaTeX 既定の字下げ（`-V indent`）で組む。Pandoc の LaTeX テンプレートは microtype を読み込むため、LuaLaTeX では字幅の伸縮（font expansion）が有効になり、ハイフンが MarkTeXset より少なくなる。また Pandoc は表を `longtable` で組み、ページをまたいで分割する。PDF から Poppler（`pdftotext -bbox-layout`、`pdffonts`）で行の位置とフォントを取り出し、次の指標を求める。SVG の数式は文字をもたず行が分断されるため、高さの大半が重なる断片を左から順に 1 行にまとめてから数える。柱とページ番号は、本文から大きく離れて各ページの同じ高さに現れる行として本文から除く。
 
 | 指標 | 合格基準（MarkTeXset） |
 |---|---|

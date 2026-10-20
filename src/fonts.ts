@@ -25,14 +25,21 @@ export const FONT_FILES: FontFile[] = [
   { file: "lmmono10-regular.otf", url: LM + "lmmono10-regular.otf", sha256: "22deb6d3be3ffcb40b33f0e010afb256c677d97c2a2bdee1f5740cdc97751558", family: "MarkTeXset Mono", weight: 400, style: "normal" },
   { file: "HaranoAjiMincho-Regular.otf", url: HARANO + "HaranoAjiMincho-Regular.otf", sha256: "66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717", family: "MarkTeXset Japanese", weight: 400, style: "normal" },
   { file: "HaranoAjiGothic-Medium.otf", url: HARANO + "HaranoAjiGothic-Medium.otf", sha256: "dfde7017fee3063b7148cce0d79b2083be4587f22cf7743f9f097424af39f5b2", family: "MarkTeXset Japanese", weight: 700, style: "normal" },
+  { file: "lmsans10-regular.otf", url: LM + "lmsans10-regular.otf", sha256: "d431b786b9b603662718e79cfe9b441f47a8b0b3e854dde89d5acb3ed7cfd682", family: "MarkTeXset Sans", weight: 400, style: "normal" },
 ];
 
-const ITALIC_ALIASES: FontFile[] = [
+// Japanese italic stays upright, and Japanese headings use Gothic at regular weight, as with jsclasses' \headfont (\gtfamily\sffamily).
+const FONT_ALIASES: FontFile[] = [
   { ...FONT_FILES[5], style: "italic" },
   { ...FONT_FILES[6], style: "italic" },
+  { ...FONT_FILES[6], family: "MarkTeXset Japanese Gothic", weight: 400 },
 ];
 
+// LuaTeX-ja's ltjs classes set Japanese at 0.924715 of the type size (13Q at 10pt), so a line of ltjsarticle's measure holds 49 characters.
+export const JAPANESE_SCALE = 0.924715;
+
 export const SERIF_STACK = "\"MarkTeXset Serif\", \"Latin Modern Roman\", \"LM Roman 10\", \"MarkTeXset Japanese\", \"Harano Aji Mincho\", serif";
+export const HEADING_SANS_STACK = "\"MarkTeXset Sans\", \"Latin Modern Sans\", \"LM Sans 10\", \"MarkTeXset Japanese Gothic\", \"Harano Aji Gothic\", sans-serif";
 export const MONO_STACK = "\"MarkTeXset Mono\", \"Latin Modern Mono\", \"LM Mono 10\", \"MarkTeXset Japanese\", \"Harano Aji Gothic\", monospace";
 
 export function fontDirectory(): string {
@@ -69,9 +76,9 @@ export function resolveFontRequest(name: string, directory = fontDirectory()): s
 /** Builds @font-face rules for the installed fonts; `urlFor` maps a font file name to a URL. */
 export function fontFaceCss(urlFor: (file: string) => string, directory = fontDirectory()): string {
   const installed = new Set(installedFontFiles(directory).map((font) => font.file));
-  return [...FONT_FILES, ...ITALIC_ALIASES].filter((font) => font.family && installed.has(font.file)).map((font) => {
+  return [...FONT_FILES, ...FONT_ALIASES].filter((font) => font.family && installed.has(font.file)).map((font) => {
     const file = servedFontFile(font, directory);
-    return "@font-face { font-family: \"" + font.family + "\"; src: url(\"" + urlFor(file) + "\") format(\"" + (file.endsWith(".ttf") ? "truetype" : "opentype") + "\"); font-weight: " + font.weight + "; font-style: " + font.style + "; font-display: block; }";
+    return "@font-face { font-family: \"" + font.family + "\"; src: url(\"" + urlFor(file) + "\") format(\"" + (file.endsWith(".ttf") ? "truetype" : "opentype") + "\"); font-weight: " + font.weight + "; font-style: " + font.style + (font.family?.startsWith("MarkTeXset Japanese") ? "; size-adjust: " + JAPANESE_SCALE * 100 + "%" : "") + "; font-display: block; }";
   }).join("\n");
 }
 

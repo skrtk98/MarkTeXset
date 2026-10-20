@@ -69,7 +69,7 @@ test("embeds Latin Modern and Harano Aji in PDF output", { skip: missingFontFile
   assert.match(fonts, /HaranoAjiMincho-Regular/);
   assert.doesNotMatch(fonts, /Liberation|DejaVu/);
   assert.doesNotMatch(fonts, /Type 3/, "fonts are embedded as TrueType, not Type 3");
-  assert.equal(FONT_FILES.length, 7);
+  assert.equal(FONT_FILES.length, 8);
 });
 
 function tables(font: Buffer): Map<string, Buffer> {

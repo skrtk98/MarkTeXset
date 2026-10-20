@@ -13,7 +13,6 @@ const DEFAULT_CONFIG: Config = {
   layout: {
     class: "article",
     size: "A4",
-    margins: "25mm",
     paginate: true,
     page: {
       number: { visible: true, position: "bottom-center", format: "{page.arabic}" },
@@ -26,15 +25,15 @@ const DEFAULT_CONFIG: Config = {
       tocDepth: 3,
       toc: "Contents",
       formats: {
-        h1: "{h1.arabic}.",
-        h2: "{h1.arabic}.{h2.arabic}.",
-        h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
+        h1: "{h1.arabic}",
+        h2: "{h1.arabic}.{h2.arabic}",
+        h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}",
       },
     },
     counter: { maxDepth: 3 },
     footnote: { format: "{footnote.arabic}", placement: "bottom" },
-    figure: { numbered: true, display: "Figure {figure.arabic}.", reference: "Figure {figure.arabic}" },
-    table: { numbered: true, display: "Table {table.arabic}.", reference: "Table {table.arabic}" },
+    figure: { numbered: true, display: "Figure {figure.arabic}:", reference: "Figure {figure.arabic}" },
+    table: { numbered: true, display: "Table {table.arabic}:", reference: "Table {table.arabic}" },
     equation: { numbered: false, display: "({equation.arabic})", reference: "({equation.arabic})" },
     callouts: {},
   },
@@ -108,11 +107,11 @@ const CHAPTER_DEFAULTS = {
   citation: { heading: { text: "Bibliography", level: 1 } },
   layout: {
     heading: {
-      formats: { h1: "Chapter {h1.arabic}", h2: "{h1.arabic}.{h2.arabic}.", h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}." },
+      formats: { h1: "Chapter {h1.arabic}", h2: "{h1.arabic}.{h2.arabic}", h3: "{h1.arabic}.{h2.arabic}.{h3.arabic}" },
       appendix: "Appendix {h1.arabic}",
     },
-    figure: { display: "Figure {h1.arabic}.{h1 > figure.arabic}.", reference: "Figure {h1.arabic}.{h1 > figure.arabic}" },
-    table: { display: "Table {h1.arabic}.{h1 > table.arabic}.", reference: "Table {h1.arabic}.{h1 > table.arabic}" },
+    figure: { display: "Figure {h1.arabic}.{h1 > figure.arabic}:", reference: "Figure {h1.arabic}.{h1 > figure.arabic}" },
+    table: { display: "Table {h1.arabic}.{h1 > table.arabic}:", reference: "Table {h1.arabic}.{h1 > table.arabic}" },
     equation: { display: "({h1.arabic}.{h1 > equation.arabic})", reference: "({h1.arabic}.{h1 > equation.arabic})" },
   },
 };
@@ -464,9 +463,9 @@ function normalizeConfig(config: Config): void {
   heading.tocDepth = heading["toc-depth"] ?? heading.tocDepth ?? 3;
   heading.toc = heading.toc ?? "Contents";
   heading.formats = {
-    h1: heading.h1 ?? heading.formats?.h1 ?? "{h1.arabic}.",
-    h2: heading.h2 ?? heading.formats?.h2 ?? "{h1.arabic}.{h2.arabic}.",
-    h3: heading.h3 ?? heading.formats?.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}.",
+    h1: heading.h1 ?? heading.formats?.h1 ?? "{h1.arabic}",
+    h2: heading.h2 ?? heading.formats?.h2 ?? "{h1.arabic}.{h2.arabic}",
+    h3: heading.h3 ?? heading.formats?.h3 ?? "{h1.arabic}.{h2.arabic}.{h3.arabic}",
   };
   // The appendix numbers top-level headings with letters; without its own format it reuses h1's.
   heading.appendix = heading.appendix ?? heading.formats.h1;
