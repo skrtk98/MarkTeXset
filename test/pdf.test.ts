@@ -90,6 +90,15 @@ test("a book opens chapters on right-hand pages, numbers front matter in roman, 
   assert.deepEqual([pages[8][0], pages[10][0], pages[10].at(-1)], ["Chapter 2", "Index", "5"]);
 });
 
+test("a book still reports a blank left-hand page that no chapter explains", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-book-blank-"));
+  const output = path.join(directory, "document.pdf");
+  const result = compile("---\nmathmd:\n  layout:\n    class: book\n---\n# Alpha\n\nOne.\n\n<pagebreak />\n\n<pagebreak />\n\nTwo.\n");
+  const before = result.diagnostics.items.filter((item) => item.code === "EMPTY_PAGE").length;
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  assert.equal(result.diagnostics.items.filter((item) => item.code === "EMPTY_PAGE").length, before + 1);
+});
+
 test("a report starts each chapter on a new page after a title page", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-report-"));
   const output = path.join(directory, "document.pdf");

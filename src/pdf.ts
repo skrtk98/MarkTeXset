@@ -302,7 +302,8 @@ async function numberTocEntries(page: Page): Promise<void> {
 async function readLayoutDiagnostics(page: Page, book = false): Promise<LayoutDiagnostic[]> {
   return page.evaluate((book) => {
     const diagnostics: Array<{ code: string; message: string }> = [];
-    for (const container of document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")) {
+    const containers = [...document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")];
+    for (const [index, container] of containers.entries()) {
       const area = container.querySelector<HTMLElement>("[data-vivliostyle-page-area]");
       if (!area) continue;
       const areaRect = area.getBoundingClientRect();
@@ -325,8 +326,8 @@ async function readLayoutDiagnostics(page: Page, book = false): Promise<LayoutDi
           if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) diagnostics.push({ code: "LAYOUT_OVERLAP", message: "Block elements overlap on a page." });
         }
       }
-      // A book leaves the left-hand page before a chapter blank on purpose.
-      const intended = book && container.getAttribute("data-vivliostyle-page-side") === "left";
+      // A book leaves blank the left-hand page before a chapter or the contents, and the back of the title page.
+      const intended = book && container.getAttribute("data-vivliostyle-page-side") === "left" && Boolean(containers[index + 1]?.querySelector("h1.chapter, .toc-title") || containers[index - 1]?.querySelector(".document-title"));
       if (!intended && !area.textContent?.trim() && !area.querySelector("svg, img, table")) diagnostics.push({ code: "EMPTY_PAGE", message: "A blank page was generated." });
     }
     return diagnostics;
