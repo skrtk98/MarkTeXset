@@ -320,6 +320,10 @@ test("prints heading and Callout references with their reference formats", () =>
   assert.match(result.html, /href="#prf:b">the proof<\/a>/);
   assert.match(result.html, /href="#rem:a">remark<\/a>/, "Callouts without a reference format print the title");
   assert.match(result.html, /href="#thm:a">see<\/a>/);
+  const scoped = compile("---\nmathmd:\n  layout:\n    heading:\n      h2: \"{h1.arabic}-{h1 > h2.arabic}\"\n      reference:\n        h2: \"Section {h1 > h2.Alph}\"\n---\n# One\n\n## Sub {#sec:sub}\n\n## Next {#sec:next}\n\n[](#sec:next)\n");
+  assert.deepEqual(scoped.diagnostics.items, []);
+  assert.match(scoped.html, />1-2 Next<\/h2>/, "scoped placeholders print their last counter");
+  assert.match(scoped.html, /href="#sec:next">Section B<\/a>/);
   const defaults = compile("# Intro {#intro}\n\n[](#intro)\n");
   assert.match(defaults.html, /href="#intro">Intro<\/a>/, "headings print their text by default, as before");
 });
@@ -331,6 +335,7 @@ test("rejects a numbered Callout reference for an unnumbered environment and inv
   const invalid = compile("---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {theorem.arabic}\"\n        h4: \"x\"\n    callouts:\n      theorem:\n        title: \"Theorem {theorem.arabic}\"\n        reference: \"Theorem {lemma.arabic}\"\n---\nBody.\n");
   assert.deepEqual(invalid.diagnostics.items.map((item) => item.code).sort(), ["INVALID_COUNTER_TEMPLATE", "INVALID_COUNTER_TEMPLATE", "UNKNOWN_CONFIG_KEY"]);
   assert.ok(compile("---\nmathmd:\n  layout:\n    heading:\n      reference: \"Section\"\n---\nBody.\n").diagnostics.items.some((item) => item.code === "INVALID_CONFIG_TYPE"));
+  assert.ok(compile("---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: 42\n---\nBody.\n").diagnostics.items.some((item) => item.code === "INVALID_CONFIG_TYPE"));
 });
 
 test("renders numbered figures and resolves figure references", () => {

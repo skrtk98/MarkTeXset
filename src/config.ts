@@ -281,6 +281,7 @@ function validateLayout(layout: Record<string, any> | undefined, file: string, s
   }
   const headingFormats = [...Object.entries(layout.heading?.formats ?? {}).map(([name, format]) => ["layout.heading.formats." + name, format]), ...["h1", "h2", "h3"].map((name) => ["layout.heading." + name, layout.heading?.[name]]), ...Object.entries(layout.heading?.reference ?? {}).map(([name, format]) => ["layout.heading.reference." + name, format])];
   if (layout.heading?.reference !== undefined && !isRecord(layout.heading.reference)) diagnostics.error("INVALID_CONFIG_TYPE", "layout.heading.reference must be a mapping of h1, h2, and h3.", locationFor(source, file, 0));
+  for (const [name, format] of headingFormats) if (format !== undefined && typeof format !== "string") diagnostics.error("INVALID_CONFIG_TYPE", name + " must be a string.", locationFor(source, file, 0));
   for (const [name, format] of headingFormats) if (typeof format === "string") validateCounterTemplate(format, name, file, source, diagnostics, new Set(["h1", "h2", "h3", "h4", "h5", "h6"]));
   for (const [name, definition] of Object.entries(layout.callouts ?? {})) {
     if (!isRecord(definition)) continue;

@@ -551,7 +551,8 @@ function addHeadingNumbers(html: string, config: Config, references: Map<string,
     counters[level]++;
     for (let i = level + 1; i <= 6; i++) counters[i] = 0;
     const format = String(formats["h" + level] ?? "");
-    const formatNumber = (template: string) => template.replace(/\{h([1-6])\.([A-Za-z]+)\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
+    // A scoped placeholder such as {h1 > h2.arabic} prints its last counter.
+    const formatNumber = (template: string) => template.replace(/\{(?:[^{}>]*>)*\s*h([1-6])\.([A-Za-z]+)\s*\}/g, (_x: string, n: string, style: string) => formatCounter(counters[Number(n)] || 0, style));
     const number = formatNumber(format);
     const reference = config.layout.heading.reference?.["h" + level];
     if (id && typeof reference === "string") references.set(id, formatNumber(reference));
