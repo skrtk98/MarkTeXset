@@ -284,6 +284,8 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
     return "\\href{#" + id.replace(/[^A-Za-z0-9:_-]/g, "") + "}{\\text{" + escaped + "}}";
   });
   const display = String(config.layout.equation.display ?? "({equation.arabic})");
+  // \eqref and \ref print the number alone, like LaTeX's \theequation: the display format from its first placeholder to its last.
+  const bareNumber = display.slice(display.indexOf("{"), display.lastIndexOf("}") + 1);
   const lineOf = lineCounter(source);
   let text = source.replace(/\$\$([\s\S]*?)\$\$/g, (match: string, body: string, offset: number) => {
     outline.advanceTo(lineOf(offset));
@@ -303,8 +305,7 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
         if (label) {
           if (ids.has(label)) diagnostics.error("DUPLICATE_ID", "ID '" + label + "' is defined more than once.");
           ids.add(label);
-          // \eqref and \ref print the number without the parentheses of the display format.
-          if (numberValue) equationNumbers.set(label, numberText.replace(/^\((.*)\)$/, "$1"));
+          if (numberValue) equationNumbers.set(label, outline.format(bareNumber, "equation", numberValue));
           references.set(label, numberValue ? outline.format(String(config.layout.equation.reference ?? "({equation.arabic})"), "equation", numberValue) : "equation");
         }
         const rowSource = row.source ?? "";

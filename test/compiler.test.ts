@@ -330,6 +330,10 @@ test("scoped counters restart at each heading of their scope and print heading n
   assert.match(result.html, /href="#eq:b1">Eq\. \(2\.1\)<\/a>/);
   assert.match(result.html, /href="#fig:b1">Figure 2\.1<\/a>/);
   assert.match(result.html, /<mtext href="#eq:a2">\(1\.2\)<\/mtext>/, "\\eqref prints the chapter-relative number");
+  const labelled = compile("---\nmathmd:\n  layout:\n    equation:\n      display: \"Eq. [{h1.arabic}-{h1 > equation.roman}]\"\n---\n# A\n\n$$x \\label{eq:a}$$\n\n$$y \\label{eq:b}$$\n\n$\\eqref{eq:b}$ $\\ref{eq:b}$\n");
+  assert.match(labelled.html, />Eq\. \[1-ii\]<\/span>/);
+  assert.match(labelled.html, /<mtext href="#eq:b">\(1-ii\)<\/mtext>/, "\\eqref wraps the bare number, not the display label");
+  assert.match(labelled.html, /<mtext href="#eq:b">1-ii<\/mtext>/);
 });
 
 test("an appendix restarts top-level headings and letters them", () => {
