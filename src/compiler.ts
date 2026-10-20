@@ -329,16 +329,21 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
       return put("<div class=\"math-block math-error\">[math error]</div>");
     }
   });
-  text = text.replace(/\$([^$\n]+)\$/g, (match: string, body: string, offset: number) => {
+  text = text.replace(/\$([^$\n]+)\$/g, (match: string, body: string, offset: number, whole: string) => {
     try {
       const sourceRange = mathSourceOffset(context, source, offset, match);
       const rendered = renderInlineMath(resolveTexReferences(expandMacros(body, config))).html;
-      return put(rendered.replace("<span class=\"math-render\"", "<span class=\"math-render\"" + inspectorAttributes(context, "inline", body, sourceRange.start, sourceRange.end)));
+      // Browsers may break on either side of the rendered formula, so a word joiner keeps closing punctuation with it.
+      const joiner = NO_BREAK_BEFORE.test(whole.charAt(offset + match.length)) ? "⁠" : "";
+      return put(rendered.replace("<span class=\"math-render\"", "<span class=\"math-render\"" + inspectorAttributes(context, "inline", body, sourceRange.start, sourceRange.end)) + joiner);
     }
     catch (error) { diagnostics.error("MATH_RENDER", String(error)); return put("<span class=\"math-error\">[math error]</span>"); }
   });
   return { text, values };
 }
+
+// Punctuation that may not start a line, in Latin text and under JIS X 4051.
+const NO_BREAK_BEFORE = /^[,.;:!?)\]}、。，．・：；？！）」』】〕〉》｝］…‥]$/;
 
 /** Maps character offsets, in increasing order, to zero-based line numbers. */
 function lineCounter(text: string): (offset: number) => number {

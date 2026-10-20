@@ -383,6 +383,13 @@ test("book front and back matter chapters are unnumbered, and matter directives 
   assert.match(compile("---\nmathmd:\n  layout:\n    class: article\n---\n# A\n").html, /<h1>1\. A<\/h1>/);
 });
 
+test("keeps closing punctuation on the line of the inline math before it", () => {
+  const result = compile("---\nmathmd:\n  meta:\n    language: ja\n---\n式 $x$、次に $y$ と $z$。\n");
+  assert.match(result.html, /<\/span>⁠、/);
+  assert.match(result.html, /<\/span>⁠。/);
+  assert.doesNotMatch(result.html, /<\/span>⁠ と/);
+});
+
 test("prints heading and Callout references with their reference formats", () => {
   const config = "---\nmathmd:\n  layout:\n    heading:\n      reference:\n        h1: \"Section {h1.arabic}\"\n        h2: \"Section {h1.Roman}.{h2.alph}\"\n    callouts:\n      theorem:\n        title: \"**Theorem {theorem.arabic}.**\"\n        reference: \"Theorem {theorem.Roman}\"\n      proof:\n        title: Proof\n        style: proof\n        reference: \"the proof\"\n---\n";
   const body = "# One\n\n# Two {#sec:two}\n\n## Sub {#sec:sub}\n\n### Deep {#sec:deep}\n\n#: Plain {#sec:plain}\n\n> [!theorem] {#thm:a}\n> A.\n\n> [!theorem] {#thm:b}\n> B.\n\n> [!proof] {#prf:b}\n> Done.\n\n> [!remark] {#rem:a}\n> R.\n\n[](#sec:two), [](#sec:sub), [](#sec:deep), [](#sec:plain), [](#thm:b), [](#prf:b), [](#rem:a), [see](#thm:a).\n";
