@@ -620,7 +620,8 @@ function bibliography(config: Config, body: string, diagnostics: Diagnostics, fi
   }).join("");
   const heading = config.citation.heading;
   const referenceClass = config.citation.style === "numeric" ? "references references-numeric" : "references references-author-year";
-  return "<h" + heading.level + ">" + escapeHtml(heading.text) + "</h" + heading.level + "><ul class=\"" + referenceClass + "\">" + html + "</ul>";
+  // Like LaTeX's thebibliography, the heading is unnumbered.
+  return "<h" + heading.level + ">MATHMDNONUM " + escapeHtml(heading.text) + "</h" + heading.level + "><ul class=\"" + referenceClass + "\">" + html + "</ul>";
 }
 
 function citationAuthor(author: string): string {

@@ -402,6 +402,8 @@ test("renders numeric bibliography labels without list bullets", () => {
   assert.match(result.html, /reference-label">\[1\]<\/span>/);
   assert.match(result.html, /reference-label">\[2\]<\/span>/);
   assert.match(result.html, /\.references\{list-style:none/);
+  const sectioned = compile(source.replace("[@one", "# Intro\n\n[@one"), path.join(directory, "document.md"));
+  assert.match(sectioned.html, /<h2>References<\/h2>/, "the bibliography heading is unnumbered, as in LaTeX");
 });
 
 test("rejects duplicate IDs and citations without a references directive", () => {
