@@ -33,6 +33,13 @@ function pageContent(config: Record<string, any>, style?: string): string {
   return tokens.join(" ");
 }
 
+// The table of contents prints the page counter in the style of the page number format, without its other text, like \thepage.
+function pageNumberStyle(config: Record<string, any>): string {
+  return String(config.layout?.page?.number?.format ?? "{page.arabic}").match(/\{page\.([A-Za-z]+)\}/)?.[1] ?? "arabic";
+}
+
+const COUNTER_STYLES: Record<string, string> = { arabic: "decimal", roman: "lower-roman", Roman: "upper-roman", alph: "lower-alpha", Alph: "upper-alpha" };
+
 function embedLocalImages(html: string, baseDirectory: string): string {
   return html.replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'])/gi, (match, prefix: string, source: string, suffix: string) => {
     if (/^(?:data:|https?:|#)/i.test(source)) return match;
@@ -176,7 +183,7 @@ h1, h2 { string-set: mathmd-section content(text); }
 .toc-list li { display: flex; align-items: baseline; }
 .toc-list .toc-level-2 { padding-left: 1.5em; } .toc-list .toc-level-3 { padding-left: 3em; } .toc-list .toc-level-4, .toc-list .toc-level-5, .toc-list .toc-level-6 { padding-left: 4.5em; }
 .toc-list a { color: inherit; text-decoration: none; display: flex; flex: 1; align-items: baseline; }
-.toc-list a::after { content: target-counter(attr(href url), page); flex: none; padding-left: 0.5em; }
+.toc-list a::after { content: target-counter(attr(href url), page, ${COUNTER_STYLES[pageNumberStyle(config)] ?? "decimal"}); flex: none; padding-left: 0.5em; }
 .toc-list a::before { content: ""; order: 1; flex: 1; border-bottom: 1px dotted; margin: 0 0.3em; }
 .toc-list a::after { order: 2; }
 .toc-list .toc-level-1 { font-weight: bold; margin-top: 0.5em; }
@@ -242,7 +249,7 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
   if (error) throw new Error("Vivliostyle pagination failed: " + error);
   await page.evaluate(() => document.fonts.ready);
   await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"), result.config.layout?.class === "book");
-  if (result.config.layout?.class === "report" || result.config.layout?.class === "book") await numberTocEntries(page);
+  if (result.config.layout?.class === "report" || result.config.layout?.class === "book") await numberTocEntries(page, pageNumberStyle(result.config));
 }
 
 // Page styles follow LaTeX's \pagestyle: a marker switches the style from its page onward.
@@ -267,8 +274,8 @@ async function applyPageStyles(page: Page, initial: string, book: boolean): Prom
 
 // Vivliostyle's target-counter() keeps the reset value of the page counter for every heading after a reset,
 // so a report or book, which restarts page numbers after the title and the front matter, fills them in itself.
-async function numberTocEntries(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function numberTocEntries(page: Page, style: string): Promise<void> {
+  await page.evaluate((style) => {
     // No named functions here: the test runner's transpiler would wrap them in a helper the page does not have.
     const numerals = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]] as const;
     const numbers = new Map<string, string>();
@@ -283,11 +290,18 @@ async function numberTocEntries(page: Page): Promise<void> {
       if (afterTitle && filled) { value = 1; afterTitle = false; }
       if (!mainmatter && container.querySelector(".mathmd-mainmatter")) { value = 1; mainmatter = true; }
       if (container.querySelector(".document-title")) afterTitle = true;
+      // Front matter is numbered in lowercase roman numerals, as with LaTeX's \frontmatter.
+      const format = container.querySelector(".mathmd-frontmatter") && !mainmatter ? "roman" : style;
       let label = String(value);
-      if (container.querySelector(".mathmd-frontmatter") && !mainmatter) {
+      if (format === "roman" || format === "Roman") {
         label = "";
         let rest = value;
         for (const [amount, digits] of numerals) for (; rest >= amount; rest -= amount) label += digits;
+        if (format === "Roman") label = label.toUpperCase();
+      } else if (format === "alph" || format === "Alph") {
+        label = "";
+        for (let rest = value; rest > 0; rest = Math.floor((rest - 1) / 26)) label = String.fromCharCode(97 + (rest - 1) % 26) + label;
+        if (format === "Alph") label = label.toUpperCase();
       }
       for (const element of container.querySelectorAll<HTMLElement>("[id]")) if (!numbers.has(element.id)) numbers.set(element.id, label);
     }
@@ -296,7 +310,7 @@ async function numberTocEntries(page: Page): Promise<void> {
       const counter = link.querySelector<HTMLElement>("[data-vivliostyle-target-counter]");
       if (number && counter) counter.textContent = number;
     }
-  });
+  }, style);
 }
 
 async function readLayoutDiagnostics(page: Page, book = false): Promise<LayoutDiagnostic[]> {

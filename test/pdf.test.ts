@@ -99,6 +99,18 @@ test("a book still reports a blank left-hand page that no chapter explains", asy
   assert.equal(result.diagnostics.items.filter((item) => item.code === "EMPTY_PAGE").length, before + 1);
 });
 
+test("the table of contents prints page numbers in the style of the page number format", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-toc-style-"));
+  for (const documentClass of ["article", "report"]) {
+    const output = path.join(directory, documentClass + ".pdf");
+    const result = compile("---\nmathmd:\n  layout:\n    class: " + documentClass + "\n    page:\n      number:\n        format: \"- {page.Roman} -\"\n---\n<maketoc />\n\n" + (documentClass === "article" ? "<pagebreak />\n\n" : "") + "# Alpha\n\nOne.\n\n" + (documentClass === "article" ? "<pagebreak />\n\n" : "") + "# Beta\n\nTwo.\n");
+    await renderPdf(result, output, path.join(directory, "document.md"));
+    const contents = pageText(output, 1).split("\n").map((line) => line.trim().replace(/\s+/g, " ")).filter(Boolean);
+    assert.ok(contents.some((line) => /Alpha II$/.test(line)), documentClass + ": " + contents.join(" | "));
+    assert.ok(contents.some((line) => /Beta III$/.test(line)), documentClass + ": " + contents.join(" | "));
+  }
+});
+
 test("a report starts each chapter on a new page after a title page", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-report-"));
   const output = path.join(directory, "document.pdf");
