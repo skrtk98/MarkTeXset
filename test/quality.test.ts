@@ -61,7 +61,7 @@ test("protruding Latin punctuation at the line end is not reported as overfull",
   assert.equal(analyzeLayout(parseBboxLayout(page(lines))).overfullLines, 3, "PDFs without protrusion get no allowance");
 });
 
-for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
+for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja", "chapters.en", "chapters.ja"]) {
   const language = sample.slice(-2);
   test(`quality sample (${sample}) meets the typesetting criteria`, async () => {
     const input = path.resolve("examples/quality/" + sample + ".md");
@@ -69,7 +69,7 @@ for (const sample of ["prose.en", "prose.ja", "structure.en", "structure.ja"]) {
     assert.deepEqual(result.diagnostics.items.map((item) => item.code), []);
     const output = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-quality-")), sample + ".pdf");
     await renderPdf(result, output, input);
-    const report = analyzePdf(output, { protrusion: true });
+    const report = analyzePdf(output, { protrusion: true, chapters: result.config.layout.class !== "article" });
     assert.equal(report.overfullLines, 0);
     assert.equal(report.kinsokuViolations, 0);
     assert.ok(report.maxLetterSpacing < 0.1, "no Japanese line is spread out to fill the measure: +" + (report.maxLetterSpacing * 100).toFixed(1) + "%");

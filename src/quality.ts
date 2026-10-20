@@ -37,8 +37,12 @@ function lineEndAllowance(line: TextLine, protrusion: boolean): number {
   return protrusion && PROTRUDING_AT_LINE_END.test(text) ? height * 0.3 : 0;
 }
 
-/** `protrusion` allows Latin punctuation to hang into the margin, for PDFs typeset with margin protrusion. */
-export interface AnalyzeOptions { protrusion?: boolean; }
+/**
+ * `protrusion` allows Latin punctuation to hang into the margin, for PDFs typeset with margin protrusion.
+ * `chapters` treats a page whose text starts well below the top of the text block as a chapter opening,
+ * so the page before it, which ends a chapter, may be short.
+ */
+export interface AnalyzeOptions { protrusion?: boolean; chapters?: boolean; }
 const FALLBACK_FONTS = /Liberation|DejaVu|Noto(?!.*CJK)|Arial|Helvetica|Times|Nimbus/i;
 
 const decode = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
@@ -127,7 +131,15 @@ export function analyzeLayout(pages: PdfPage[], fontList: string[] = [], options
   const right = percentile(all.filter((line) => line.xMax - line.xMin >= 0.6 * widest).map((line) => line.xMax), 0.5);
   const top = percentile(body.filter((lines) => lines.length).map((lines) => Math.min(...lines.map((line) => line.yMin))), 0.1);
   const bottom = percentile(body.filter((lines) => lines.length).map((lines) => Math.max(...lines.map((line) => line.yMax))), 0.9);
-  const whitespace = body.slice(0, -1).filter((lines) => lines.length).map((lines) => Math.max(0, unusedSpace(lines, bottom)) / Math.max(1, bottom - top));
+  const firstLines = body.map((lines) => lines.length ? Math.min(...lines.map((line) => line.yMin)) : Infinity);
+  const pitch = percentile(all.map((line) => line.yMax - line.yMin), 0.5) || 10;
+  // Blank pages have no lines, so the page that ends a chapter is the last one with text before the opening.
+  const endsChapter = body.map((lines, index) => {
+    if (!options.chapters || !lines.length) return false;
+    const next = firstLines.slice(index + 1).find((value) => value !== Infinity);
+    return next !== undefined && next > top + 3 * pitch;
+  });
+  const whitespace = body.slice(0, -1).filter((lines, index) => lines.length && !endsChapter[index]).map((lines) => Math.max(0, unusedSpace(lines, bottom)) / Math.max(1, bottom - top));
   let hyphenated = 0;
   let consecutive = 0;
   let maxConsecutive = 0;

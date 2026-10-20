@@ -20,18 +20,20 @@ const results: Record<string, Record<string, QualityReport>> = {};
 for (const file of files) {
   const name = path.basename(file, ".md");
   const language = fs.readFileSync(file, "utf8").match(/^\s*language:\s*(\w+)/m)?.[1] === "ja" ? "ja" : "en";
+  const documentClass = fs.readFileSync(file, "utf8").match(/^\s*class:\s*(\w+)/m)?.[1] ?? "article";
+  const options = { protrusion: true, chapters: documentClass !== "article" };
   const result = await compileFileWithResources(file);
   if (result.diagnostics.hasErrors) throw new Error(name + " has compile errors");
   const pdf = path.join(out, name + ".marktexset.pdf");
   await renderPdf(result, pdf, file);
-  const reports = [{ name: "MarkTeXset", report: analyzePdf(pdf, { protrusion: true }) }];
+  const reports = [{ name: "MarkTeXset", report: analyzePdf(pdf, options) }];
   if (baseline) {
     const texPdf = path.join(out, name + ".baseline.pdf");
-    execFileSync("docker", ["run", "--rm", "-u", process.getuid!() + ":" + process.getgid!(), "-v", path.dirname(file) + ":/in:ro", "-v", out + ":/out", "marktexset-baseline", "/in/" + path.basename(file), "/out/" + path.basename(texPdf), language], { stdio: "inherit" });
-    reports.push({ name: "TeX baseline", report: analyzePdf(texPdf, { protrusion: true }) });
+    execFileSync("docker", ["run", "--rm", "-u", process.getuid!() + ":" + process.getgid!(), "-v", path.dirname(file) + ":/in:ro", "-v", out + ":/out", "marktexset-baseline", "/in/" + path.basename(file), "/out/" + path.basename(texPdf), language, documentClass], { stdio: "inherit" });
+    reports.push({ name: "TeX baseline", report: analyzePdf(texPdf, options) });
   }
   results[name] = Object.fromEntries(reports.map((item) => [item.name, item.report]));
-  sections.push("## " + name + " (" + language + ")\n\n" + formatReports(reports));
+  sections.push("## " + name + " (" + language + (documentClass === "article" ? "" : ", " + documentClass) + ")\n\n" + formatReports(reports));
 }
 const report = "# Typesetting quality report\n\n" + sections.join("\n");
 fs.writeFileSync(path.join(out, "report.md"), report);
