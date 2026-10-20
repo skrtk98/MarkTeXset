@@ -348,7 +348,12 @@ function protectMath(source: string, config: Config, diagnostics: Diagnostics, c
   return { text, values };
 }
 
-/** Blanks out the lines of fenced code blocks, so directive counts ignore examples in code. */
+/** Blanks out HTML comments, keeping their line breaks so line numbers stay the same. */
+function maskComments(markdown: string): string {
+  return markdown.replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\n]/g, ""));
+}
+
+/** Blanks out the lines of fenced code blocks and comments, so directive counts ignore examples there. */
 function withoutFencedCode(markdown: string): string {
   let fence: string | undefined;
   return markdown.split("\n").map((line) => {
@@ -359,7 +364,7 @@ function withoutFencedCode(markdown: string): string {
     const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (opening) fence = opening[1];
     return opening ? "" : line;
-  }).join("\n");
+  }).join("\n").replace(/<!--[\s\S]*?-->/g, "");
 }
 
 // Punctuation that may not start a line, in Latin text and under JIS X 4051.
@@ -403,7 +408,7 @@ function captionTables(html: string, config: Config, context: RenderContext, dia
 
 function protectImages(source: string, config: Config, context: RenderContext, diagnostics: Diagnostics, replacements: Map<string, string>): string {
   let index = 0;
-  const outline = context.depth === 0 ? new Outline(config, markdownOutline(source)) : context.outline.snapshot();
+  const outline = context.depth === 0 ? new Outline(config, markdownOutline(maskComments(source))) : context.outline.snapshot();
   const lineOf = lineCounter(source);
   const display = String(config.layout.figure.display ?? "Figure {figure.arabic}.");
   return source.replace(/!\[([^\]]*)\]\(([^\s)]+)(?:\s+["']([^"']*)["'])?\)(?:[ \t]*\{([^}]*)\})?/g, (match, alt: string, src: string, title: string | undefined, attributes: string | undefined, offset: number) => {
@@ -446,7 +451,7 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
   const imageSafeSource = protectImages(source, config, context, diagnostics, replacements);
   const lines = imageSafeSource.replace(/\r\n/g, "\n").split("\n");
   // Nested Markdown, such as a Callout body, keeps the heading state at its Callout.
-  const events = context.depth === 0 ? markdownOutline(lines.join("\n")) : [];
+  const events = context.depth === 0 ? markdownOutline(maskComments(lines.join("\n"))) : [];
   if (context.depth === 0) context.outline = new Outline(config, events);
   const eventLines = new Set(events.map((event) => event.line));
   const output: string[] = [];
@@ -464,8 +469,16 @@ function preprocess(source: string, config: Config, diagnostics: Diagnostics, co
     processed = output.length;
   };
   let fence: string | undefined;
+  let comment = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // Comments are free text: nothing on a commented line is a directive, a Callout, or a heading attribute.
+    if (!fence && (comment || /<!--(?![\s\S]*-->)/.test(line))) {
+      if (comment && line.includes("-->")) comment = /<!--(?![\s\S]*-->)/.test(line.slice(line.indexOf("-->") + 3));
+      else comment = true;
+      output.push(line);
+      continue;
+    }
     if (!fence && (eventLines.has(i) || /^>\s*\[!([^\]]+)\]/.test(line))) flushMath();
     if (context.depth === 0) context.outline.advanceTo(i);
     if (/^```tikzcd\s*$/i.test(line)) {

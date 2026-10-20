@@ -430,6 +430,13 @@ test("headings inside a Callout are not numbered, listed, or treated as chapters
   assert.match(result.html, /href="#aside">Aside<\/a>/);
 });
 
+test("ignores directives inside HTML comments", () => {
+  const result = compile("# One\n\n<!--\n<appendix />\n\n<mainmatter />\n\n> [!theorem] {#thm:x}\n-->\n\n# Two\n");
+  assert.deepEqual(result.diagnostics.items, []);
+  assert.match(result.html, /<h1>2\. Two<\/h1>/);
+  assert.doesNotMatch(result.html, /mathmd-directive|class="callout/);
+});
+
 test("keeps structure directives inside a Callout literal", () => {
   const result = compile("> [!remark]\n> <appendix />\n\n# One\n");
   assert.deepEqual(result.diagnostics.items.map((item) => item.code), ["NESTED_STRUCTURE_DIRECTIVE"]);
