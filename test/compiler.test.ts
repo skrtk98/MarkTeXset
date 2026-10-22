@@ -665,6 +665,8 @@ test("preview math inspector selects a formula and shows TeX, DOM, and computed 
     assert.equal(await inspector.getByText(/Context:/).count(), 1);
     assert.equal(await inspector.getByText("Rendered DOM").count(), 1);
     assert.equal(await inspector.getByText("Computed style").count(), 1);
+    // The details after the source come from a second request, which can take a moment when the machine is busy.
+    await inspector.getByText("Commands and expansion").waitFor();
     assert.equal(await inspector.getByText("Commands and expansion").count(), 1);
     assert.equal(await inspector.getByText("Matched CSS rules").count(), 1);
     assert.equal(await inspector.getByPlaceholder("Filter computed properties").count(), 1);

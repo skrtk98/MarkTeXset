@@ -54,8 +54,8 @@ export interface CompileOptions {
 }
 
 // Spaces between the breakable parts of inline math: TeX's thick (5mu) and medium (4mu) spaces, as a share of
-// Latin Modern's 0.333em word space, with MathJax's em at 0.431/0.442 of the text's.
-const MATH_GLUE_CSS = ".math-glue{font-family:\"MarkTeXset Serif\",\"Latin Modern Roman\",\"LM Roman 10\",serif}.math-glue-rel{font-size:81.3%}.math-glue-bin{font-size:65.1%}";
+// Latin Modern's 0.333em word space. The smaller type must not move the line's strut.
+const MATH_GLUE_CSS = ".math-glue{font-family:\"MarkTeXset Serif\",\"Latin Modern Roman\",\"LM Roman 10\",serif;line-height:0}.math-glue-rel{font-size:83.3%}.math-glue-bin{font-size:66.7%}";
 
 const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

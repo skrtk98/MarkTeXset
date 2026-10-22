@@ -47,11 +47,22 @@ function decodeAttribute(value: string): string {
   return value.replace(/&quot;/g, "\"").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
+// MathJax sizes a formula in ex, taking an ex to be 0.442em as in its TeX fonts. Browsers resolve ex with the x-height
+// of the surrounding font (0.431em for Latin Modern, and rounded to device pixels), which would set the math smaller
+// than LaTeX does, so the sizes are given in em instead.
+const MATHJAX_EX = 0.442;
+
 function convert(source: string, tex: string, display: boolean): string {
   const html = adaptor.outerHTML(document.convert(tex, { display }));
   const error = html.match(/data-mjx-error="([^"]*)"/);
   if (error) throw new Error("TeX error in '" + source.trim() + "': " + decodeAttribute(error[1]));
-  return html;
+  return html.replace(/<svg\b[^>]*>/, (tag) => {
+    // The view box gives the exact size in thousandths of an em; MathJax rounds the ex values.
+    const box = tag.match(/viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/)?.map(Number);
+    const em = (value: number) => Number((value / 1000).toFixed(4)) + "em";
+    if (box) return tag.replace(/width="[^"]*ex"/, "width=\"" + em(box[3]) + "\"").replace(/height="[^"]*ex"/, "height=\"" + em(box[4]) + "\"").replace(/vertical-align: [^;"]*ex/, "vertical-align: " + em(-(box[2] + box[4])));
+    return tag.replace(/(-?\d*\.?\d+)ex\b/g, (_match, value: string) => Number((Number(value) * MATHJAX_EX).toFixed(4)) + "em");
+  });
 }
 
 /** Renders TeX to SVG. TeX errors, which MathJax would draw as text, are thrown instead. */

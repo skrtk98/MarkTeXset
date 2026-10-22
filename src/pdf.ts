@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
+import { mathFont, mathPathsToText } from "./mathfont.js";
 import { HEADING_SANS_STACK, JAPANESE_SCALE, SERIF_STACK, ensureTrueTypeFonts, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
 import { breakParagraphs } from "./linebreak.js";
 
@@ -110,6 +111,31 @@ function contentWidth(config: Record<string, any>): string {
   const margins = pageMargins(config.layout?.margins).split(" ");
   const [right, left] = margins.length === 4 ? [margins[1], margins[3]] : [margins[0], margins[0]];
   return "calc(" + PAGE_WIDTHS[pageSize(config.layout?.size)] + " - " + left + " - " + right + ")";
+}
+
+// Latin Modern's ascent and descent (hhea), which set the strut of a CSS line box, and its ascender and descender.
+const LM_ASCENT = 1.127, LM_DESCENT = 0.29, LM_ASCENDER = 0.694, LM_DESCENDER = 0.194;
+
+/**
+ * Keeps inline math from spreading lines that TeX would not spread. TeX keeps lines \baselineskip apart unless the
+ * depth of one and the height of the next leave less than \lineskip (1pt) between them; CSS widens a line whenever
+ * inline content leaves its strut. Each formula's margins let it reach as far as TeX allows next to ordinary text,
+ * and widen the line by as much as TeX would beyond that.
+ */
+function settleInlineMath(html: string, lineHeight: number): string {
+  const strutTop = LM_ASCENT + (lineHeight - LM_ASCENT - LM_DESCENT) / 2;
+  const strutBottom = LM_DESCENT + (lineHeight - LM_ASCENT - LM_DESCENT) / 2;
+  const maxHeight = lineHeight - 0.1 - LM_DESCENDER;
+  const maxDepth = lineHeight - 0.1 - LM_ASCENDER;
+  return html.replace(/(<mjx-container class="MathJax" jax="SVG"(?! display="true")[^>]*>\s*<svg style=")vertical-align: (-?[\d.]+)em;([^>]*?height="([\d.]+)em")/g, (_match, start: string, align: string, rest: string, size: string) => {
+    const depth = -Number(align);
+    const height = Number(size) - depth;
+    // A replaced element sits on its bottom margin edge, so the formula is raised to the depth the line should
+    // make room for and a negative bottom margin lowers it back into place.
+    const top = height <= maxHeight ? Math.min(0, strutTop - height) : strutTop - maxHeight;
+    const room = depth <= maxDepth ? Math.min(depth, strutBottom) : strutBottom + depth - maxDepth;
+    return start + "vertical-align: " + (-room).toFixed(4) + "em; margin-top: " + top.toFixed(4) + "em; margin-bottom: " + (room - depth).toFixed(4) + "em;" + rest;
+  });
 }
 
 // Vivliostyle floats `.mathmd-footnote` spans to the page bottom, so each first
@@ -313,7 +339,9 @@ ${chapterCss(config, pageNumber, heads)}
   // A captioned table floats like LaTeX's table environment, with its caption above it across the measure.
   const captioned = titled.replace(/(<table\b[^>]*>)<caption class="table-caption">([\s\S]*?)<\/caption>([\s\S]*?<\/table>)/g, "<div class=\"mathmd-table-float\"><div class=\"table-caption\">$2</div>$1$3</div>");
   const prepared = wrapMatter(dropBreaksBeforeChapters(bindPageStyleMarkers(inlineFootnotes(captioned)), config)).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
-  return embedLocalImages(prepared.replace("</head>", css + "</head>"), baseDirectory);
+  const math = mathPathsToText(settleInlineMath(prepared, /^ja/i.test(String(config.meta?.language)) ? 1.6 : 1.2));
+  const mathFaces = [...math.families].sort().map((family) => "@font-face { font-family: \"" + family + "\"; src: url(\"" + ORIGIN + "/mathfonts/" + family + ".ttf\") format(\"truetype\"); font-display: block; } .mathmd-glyph-" + family + " { font-family: \"" + family + "\"; }").join("\n");
+  return embedLocalImages(math.html.replace("</head>", css.replace("</style>", mathFaces + "\n</style>") + "</head>"), baseDirectory);
 }
 
 function escapeText(value: string): string {
@@ -346,6 +374,8 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
     if (url === ORIGIN + "/document.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml });
     if (url === ORIGIN + "/measure.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: documentHtml.replace("</head>", "<style id=\"mathmd-measure\">body { width: " + contentWidth(result.config) + " !important; }</style></head>") });
     if (url === ORIGIN + "/vivliostyle.js") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: vivliostyle });
+    const mathFontData = url.startsWith(ORIGIN + "/mathfonts/") ? mathFont(decodeURIComponent(url.slice((ORIGIN + "/mathfonts/").length)).replace(/\.ttf$/, "")) : undefined;
+    if (mathFontData) return route.fulfill({ status: 200, contentType: "font/ttf", body: mathFontData });
     const fontPath = url.startsWith(ORIGIN + "/fonts/") ? resolveFontRequest(decodeURIComponent(url.slice((ORIGIN + "/fonts/").length))) : undefined;
     if (fontPath) return route.fulfill({ status: 200, contentType: fontPath.endsWith(".ttf") ? "font/ttf" : "font/otf", body: fs.readFileSync(fontPath) });
     return route.abort();
