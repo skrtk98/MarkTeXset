@@ -163,6 +163,86 @@ function runningMarks(html: string, config: Record<string, any>): string {
   });
 }
 
+// LuaTeX-ja's xkanjiskip: 0.25zw between a Japanese character and a Latin one or inline math, in place of any space
+// written there. It is a Latin Modern space (0.333em) set small enough, so it stretches and breaks like glue.
+const XKANJISKIP = "<span class=\"mathmd-xkanjiskip\"> </span>";
+const JAPANESE_CHAR = /[\u3041-\u309f\u30a1-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u3006]/;
+const LATIN_CHAR = /[A-Za-z0-9\u00c0-\u024f]/;
+const BLOCK_TAGS = /^(?:p|div|li|ul|ol|dl|dt|dd|h[1-6]|table|thead|tbody|tr|td|th|caption|figure|figcaption|blockquote|section|nav|header|footer|pre|br|hr)$/;
+
+/** Puts xkanjiskip between Japanese and Latin text or inline math in a Japanese document. */
+function insertXkanjiskip(html: string): string {
+  const tokens = html.match(/<[^>]*>|[^<]+/g) ?? [];
+  // Elements read as one unit: inline math and code are Latin; footnotes, scripts, and heading numbers break the run.
+  const atomOf = (tag: string): { name: string; kind: string } | undefined => {
+    const name = tag.match(/^<([a-zA-Z][\w-]*)/)?.[1].toLowerCase();
+    if (!name) return undefined;
+    if (name === "span" && /class="math-render"/.test(tag)) return { name, kind: "A" };
+    if (name === "code" || name === "kbd" || name === "samp") return { name, kind: "A" };
+    if (name === "span" && /class="(?:mathmd-footnote|mathmd-footnote-repeat|heading-number|mathmd-mark mathmd-mark-h\d)"/.test(tag)) return { name, kind: "X" };
+    if (/^(?:sup|sub|svg|style|script|math|mjx-container|img|input)$/.test(name)) return { name, kind: "X" };
+    return undefined;
+  };
+  const output: string[] = [];
+  let last = "";
+  let pending: Array<{ index: number; text: string }> = [];
+  // A new unit of the given kind starts at the end of the output; returns whether xkanjiskip goes before it.
+  const meet = (kind: string): boolean => {
+    const join = (last === "J" && kind === "A") || (last === "A" && kind === "J");
+    if (join) for (const space of pending) output[space.index] = "";
+    pending = [];
+    last = kind;
+    return join;
+  };
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.startsWith("<")) {
+      const name = token.match(/^<\/?([a-zA-Z][\w-]*)/)?.[1].toLowerCase() ?? "";
+      const atom = token.startsWith("</") || token.endsWith("/>") ? undefined : atomOf(token);
+      if (atom) {
+        // Copy the element whole, tracking nested elements of the same name.
+        let depth = 0, end = i;
+        for (; end < tokens.length; end++) {
+          const inner = tokens[end].match(/^<(\/?)([a-zA-Z][\w-]*)/);
+          if (inner && inner[2].toLowerCase() === atom.name && !tokens[end].endsWith("/>")) depth += inner[1] ? -1 : 1;
+          if (depth === 0) break;
+        }
+        // A heading number such as 第1章 is spaced inside, but not against the title.
+        const inner = /heading-number/.test(token) ? token + insertXkanjiskip(tokens.slice(i + 1, end).join("")) + (tokens[end] ?? "") : tokens.slice(i, end + 1).join("");
+        output.push((meet(atom.kind) ? XKANJISKIP : "") + inner);
+        if (atom.kind === "X") last = "";
+        i = end;
+        continue;
+      }
+      if (BLOCK_TAGS.test(name)) { last = ""; pending = []; }
+      output.push(token);
+      continue;
+    }
+    let text = "";
+    for (let j = 0; j < token.length; j++) {
+      const char = token[j];
+      if (/[ \t\n]/.test(char)) { text += char; continue; }
+      if (char === "&") {
+        const entity = token.slice(j).match(/^&[#\w]+;/)?.[0] ?? "&";
+        meet("X");
+        text += entity;
+        j += entity.length - 1;
+        continue;
+      }
+      const kind = JAPANESE_CHAR.test(char) ? "J" : LATIN_CHAR.test(char) ? "A" : "X";
+      // Spaces earlier in this token are pending as part of the text so far.
+      const trailing = text.match(/[ \t\n]+$/)?.[0] ?? "";
+      if (trailing) { output.push(text.slice(0, -trailing.length)); pending.push({ index: output.length, text: trailing }); output.push(trailing); text = ""; }
+      if (meet(kind)) { output.push(text); text = XKANJISKIP; }
+      text += char;
+    }
+    const trailing = text.match(/[ \t\n]+$/)?.[0] ?? "";
+    if (trailing) { output.push(text.slice(0, -trailing.length)); pending.push({ index: output.length, text: trailing }); output.push(trailing); }
+    else output.push(text);
+  }
+  return output.join("");
+}
+
 // Vivliostyle floats `.mathmd-footnote` spans to the page bottom, so each first
 // reference is replaced by its note text and later references repeat the number.
 function inlineFootnotes(html: string): string {
@@ -312,6 +392,8 @@ h1, h2, .toc-title, .document-title .author, .document-title .date { font-family
 .heading-number { margin-right: 0.667em; }
 .mathmd-mark { font-size: 0; }
 .mathmd-heading-space { font-family: ${SERIF_STACK}; font-weight: normal; font-style: normal; }
+.mathmd-xkanjiskip { font-family: ${SERIF_STACK}; font-size: ${(0.25 * JAPANESE_SCALE / 0.333 * 100).toFixed(2)}%; line-height: 0; }
+:lang(ja) { text-autospace: no-autospace; }
 /* jsclasses set headings in Gothic and sans serif at regular weight, on whole lines of the 16pt grid. */
 :lang(ja) :is(h1, h2, h3, h4, h5, h6) { font-family: ${HEADING_SANS_STACK}; font-weight: normal; }
 :lang(ja) :is(h1, h2), :lang(ja) .toc-title { font-family: ${headingSansStack(12)}; }
@@ -397,7 +479,8 @@ ${chapterCss(config, pageNumber, heads)}
   // A captioned table floats like LaTeX's table environment, with its caption above it across the measure.
   const captioned = titled.replace(/(<table\b[^>]*>)<caption class="table-caption">([\s\S]*?)<\/caption>([\s\S]*?<\/table>)/g, "<div class=\"mathmd-table-float\"><div class=\"table-caption\">$2</div>$1$3</div>");
   const prepared = wrapMatter(dropBreaksBeforeChapters(bindPageStyleMarkers(inlineFootnotes(runningMarks(captioned, config))), config)).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
-  const math = mathPathsToText(settleInlineMath(prepared, japanese ? 1.6 : 1.2));
+  const spaced = japanese ? insertXkanjiskip(prepared) : prepared;
+  const math = mathPathsToText(settleInlineMath(spaced, japanese ? 1.6 : 1.2));
   const mathFaces = [...math.families].sort().map((family) => "@font-face { font-family: \"" + family + "\"; src: url(\"" + ORIGIN + "/mathfonts/" + family + ".ttf\") format(\"truetype\"); font-display: block; } .mathmd-glyph-" + family + " { font-family: \"" + family + "\"; }").join("\n");
   return embedLocalImages(math.html.replace("</head>", css.replace("</style>", mathFaces + "\n</style>") + "</head>"), baseDirectory);
 }

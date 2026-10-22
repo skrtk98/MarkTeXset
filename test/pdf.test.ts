@@ -209,3 +209,15 @@ test("prints page numbers in the configured counter format", () => {
   assert.equal(result.diagnostics.hasErrors, false);
   assert.match(pdfHtml(result.html, result.config, process.cwd()), /content:\s*"- " counter\(page, lower-roman\) " -"/);
 });
+
+test("puts LuaTeX-ja's xkanjiskip between Japanese and Latin text or inline math, in place of written spaces", () => {
+  const result = compile("---\nmathmd:\n  meta:\n    language: ja\n---\n\n# 第1章の話\n\n体 $F$ 上の写像 T は、SOR法で `code` を使う。*強調text*と(1)、「A」。\n");
+  const body = pdfHtml(result.html, result.config, ".").split("<body")[1]
+    .replace(/<span class="math-render">[\s\S]*?<\/mjx-container><\/span><\/span>/g, "$")
+    .replace(/<span class="mathmd-xkanjiskip"> <\/span>/g, "~");
+  assert.match(body, /<p>体~\$~上の写像~T~は、SOR~法で~<code>code<\/code>~を使う。<em>強調~text<\/em>~と\(1\)、「A」。<\/p>/);
+  assert.match(body, />第~1~章の話</, "a heading is spaced, but not its number against the title");
+  assert.match(pdfHtml(result.html, result.config, "."), /:lang\(ja\) \{ text-autospace: no-autospace; \}/);
+  const english = compile("English $x$ and 日本語 text.\n");
+  assert.doesNotMatch(pdfHtml(english.html, english.config, "."), /<span class="mathmd-xkanjiskip">/, "only Japanese documents get xkanjiskip");
+});
