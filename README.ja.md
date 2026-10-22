@@ -8,11 +8,11 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
 
 ## 主な機能
 
-- **数式**：インライン `$...$` とブロック `$$...$$` を MathJax で SVG とアクセシブルな MathML に変換する。複数行数式の番号付け、`\label`・`\ref`・`\eqref`、ユーザー定義マクロ・演算子、`tikzcd` ブロックによる可換図式に対応する。
+- **数式**：インライン `$...$` とブロック `$$...$$` を MathJax で SVG とアクセシブルな MathML に変換する（PDF では MathJax の TeX フォントを埋め込んだ文字として組み、本文と同じく鮮明に表示する）。複数行数式の番号付け、`\label`・`\ref`・`\eqref`、ユーザー定義マクロ・演算子、`tikzcd` ブロックによる可換図式に対応する。
 - **定理環境**：`> [!theorem]` などの Callout。タイトル、カウンター、style（`plain`、`definition`、`remark`、`proof`、カスタムクラス）を設定できる。
 - **文書構造**：`article`・`report`・`book` の文書クラス（章、付録、book の前付けと後付け）、番号付き見出し、目次、タイトル、脚注、図、セル結合を含む表。`report` と `book` では図・表・式に章ごとの番号を付け、定理などのカウンターも章ごとにできる。
 - **参照と引用**：数式・見出し・Callout の ID は一つの名前空間を共有し、通常の Markdown の fragment link で参照する。`[](#thm:main)` のような空リンクは、参照先の番号を「Theorem 3」「Section 2.1」のように設定した書式で表示する。ローカルの `.bib` からの `[@key]` 引用に対応する。
-- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle で、LaTeX の標準クラス（`article`・`book`・`ltjsarticle`・`ltjsbook`）の版面（余白、文字の大きさ、行送り、見出し、表題、脚注、キャプション、柱）に揃えてページ分割する。新しいページ（book では右ページ）から始まる章、book の見開きの柱とローマ数字の前付け、柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
+- **PDF 出力**：Playwright 管理下の Chromium と Vivliostyle で、LaTeX の標準クラス（`article`・`book`・`ltjsarticle`・`ltjsbook`）の版面（余白、文字の大きさ、行送り、見出し、表題、脚注、キャプション、柱）に揃えてページ分割する。新しいページ（book では右ページ）から始まる章、book の見開きの柱とローマ数字の前付け、柱、ページ番号、ページ番号付きの目次、しおり、表題と著者のメタデータ付きのタグ付き PDF、ページ下部の脚注、ページスタイル、改ページ、英文段落の TeX 式最適行分割と microtype の字幅伸縮、Latin Modern の光学サイズ、LuaTeX-ja と同じ和欧文間のアキ、TrueType でのフォント埋め込みを扱い、はみ出し・重なり・空白ページを検査する。
 - **スタイル**：global / scoped style、ローカル CSS の import、Shiki によるコードハイライト。
 - **ライブプレビュー**：保存時に再ビルドし、診断をオーバーレイに表示するローカルサーバー。数式インスペクタを備える。
 - **安全な既定値**：生 HTML、JavaScript、iframe、ネットワークアクセスは既定で無効。外部の画像と CSS 資産には HTTPS の明示的な許可リストが必要で、内容ハッシュで検証・キャッシュしたうえで出力に埋め込む。
@@ -26,7 +26,7 @@ TeX はコンパイル経路には使わない。TeX baseline は組版品質の
   npx playwright install chromium
   ```
 
-- 既定フォント（Latin Modern Roman・Sans・Mono と原ノ味フォント、約 12MB）。更新後に `fonts status` が未取得のフォントを示したら、`fonts install` を再実行する。初回に一度だけユーザーキャッシュへ取得し、固定した SHA-256 で検証する。
+- 既定フォント（6〜17pt の光学サイズの Latin Modern Roman、Roman Slanted、Sans、Mono と原ノ味フォント、約 13MB）。更新後に `fonts status` が未取得のフォントを示したら、`fonts install` を再実行する。初回に一度だけユーザーキャッシュへ取得し、固定した SHA-256 で検証する。
 
   ```bash
   marktexset fonts install   # または npm start -- fonts install
@@ -182,7 +182,7 @@ mathmd:
 
 ## 組版品質
 
-PDF 出力では英文の段落を TeX と同じ Knuth–Plass 法で行分割する。段落を本文の幅で測り、段落全体の悪さ（badness）が最小になる改行位置を選んでからページ分割する。ハイフネーションは TeX の米国英語パターンを使い、改善になる場合だけ行う。行末の句読点とハイフンは microtype と同じく右余白へわずかに突き出す。インライン数式は TeX と同じく最上位の関係演算子・二項演算子の後で改行できるため、長い数式のせいで行の残りが間延びすることはない。和文、表のセル、脚注はブラウザの行分割（禁則処理を含む）のままにする。すべてブラウザの行分割にするには次のように指定する。
+PDF 出力では英文の段落を TeX と同じ Knuth–Plass 法で行分割する。段落を本文の幅で測り、段落全体の悪さ（badness）が最小になる改行位置を選んでからページ分割する。ハイフネーションは TeX の米国英語パターンを使い、改善になる場合だけ行う。行末の句読点とハイフンは microtype と同じく右余白へわずかに突き出し、LuaLaTeX の microtype と同じく各行の文字を語間とともに最大 2% 伸縮させるため、ハイフンは LaTeX と同程度にしか入らない。インライン数式は TeX と同じく最上位の関係演算子・二項演算子の後で改行できるため、長い数式のせいで行の残りが間延びすることはない。和文、表のセル、脚注はブラウザの行分割（禁則処理を含む）のままにする。すべてブラウザの行分割にするには次のように指定する。
 
 ```yaml
 ---
@@ -234,4 +234,4 @@ npm run check   # build の後に test を実行する
 
 MarkTeXset は [GNU Affero General Public License v3.0 以降](LICENSE) で提供する。PDF のページ分割に使う [Vivliostyle](https://vivliostyle.org/) も AGPL-3.0 である。ライセンスが及ぶのは MarkTeXset 自体であり、MarkTeXset で作成した文書や PDF には影響しない。
 
-既定フォントは `marktexset fonts install` で別途取得する。Latin Modern は GUST Font License、原ノ味フォントは SIL Open Font License 1.1 で提供されている。
+既定フォントは `marktexset fonts install` で別途取得する。Latin Modern は GUST Font License、原ノ味フォントは SIL Open Font License 1.1 で提供されている。PDF 出力には、`mathjax-full` パッケージに同梱された Apache License 2.0 の MathJax TeX フォントも埋め込む。

@@ -8,11 +8,11 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
 
 ## Features
 
-- **Math**: inline `$...$` and display `$$...$$` math rendered by MathJax as SVG with accessible MathML, numbered multi-line equations, `\label` / `\ref` / `\eqref`, user-defined macros and operators, and commutative diagrams in `tikzcd` blocks.
+- **Math**: inline `$...$` and display `$$...$$` math rendered by MathJax as SVG with accessible MathML (in PDF, set as text in MathJax's embedded TeX fonts so it is as crisp as the body text), numbered multi-line equations, `\label` / `\ref` / `\eqref`, user-defined macros and operators, and commutative diagrams in `tikzcd` blocks.
 - **Theorem environments**: Callouts such as `> [!theorem]` with configurable titles, counters, and styles (`plain`, `definition`, `remark`, `proof`, or a custom class).
 - **Document structure**: the `article`, `report`, and `book` classes, with chapters, appendices, and book front and back matter; numbered headings, a table of contents, title blocks, footnotes, figures, and merged-cell tables. In `report` and `book`, figures, tables, and equations are numbered within chapters, and theorem counters can be too.
 - **References**: one namespace for equation, heading, and Callout IDs, linked with ordinary Markdown fragment links, plus `[@key]` citations from local `.bib` files. An empty link such as `[](#thm:main)` prints the target's number in a configurable format, such as "Theorem 3" or "Section 2.1".
-- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium on the page layout of LaTeX's standard classes (`article`, `book`, `ltjsarticle`, `ltjsbook`: margins, type size, leading, headings, title, footnotes, captions, and running heads), chapters that open on a new page (a right-hand page in a book), facing running heads and roman-numbered front matter in books, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
+- **PDF output**: pagination with Vivliostyle in a Playwright-managed Chromium on the page layout of LaTeX's standard classes (`article`, `book`, `ltjsarticle`, `ltjsbook`: margins, type size, leading, headings, title, footnotes, captions, and running heads), chapters that open on a new page (a right-hand page in a book), facing running heads and roman-numbered front matter in books, running heads, page numbers, a table of contents with page numbers, PDF bookmarks, tagged PDF with title and author metadata, footnotes at the bottom of each page, page styles and page breaks, TeX-style optimal line breaking for English paragraphs with microtype's font expansion, Latin Modern's optical sizes, LuaTeX-ja's spacing between Japanese and Latin text, embedded TrueType fonts, and checks for overflow, overlap, and blank pages.
 - **Styling**: global and scoped styles, local CSS imports, and code highlighting with Shiki.
 - **Live preview**: a local server that rebuilds on save, shows diagnostics in an overlay, and includes a math inspector.
 - **Safety by default**: raw HTML, JavaScript, iframes, and network access are disabled. External images and CSS assets need an explicit HTTPS allowlist, are verified and cached by content hash, and are embedded in the output.
@@ -26,7 +26,7 @@ TeX is never part of the compilation path. A TeX baseline is used only as a refe
   npx playwright install chromium
   ```
 
-- The default fonts (Latin Modern Roman, Sans, and Mono and Harano Aji, about 12 MB). Run `fonts install` again after upgrading if `fonts status` lists a missing font. They are downloaded once into a user cache and verified against pinned SHA-256 checksums:
+- The default fonts (Latin Modern Roman in its 6–17pt optical sizes, Roman Slanted, Sans, and Mono, and Harano Aji, about 13 MB). Run `fonts install` again after upgrading if `fonts status` lists a missing font. They are downloaded once into a user cache and verified against pinned SHA-256 checksums:
 
   ```bash
   marktexset fonts install   # or: npm start -- fonts install
@@ -182,7 +182,7 @@ Fetched files are cached by SHA-256 and embedded in the output as data URIs, so 
 
 ## Typesetting quality
 
-PDF output breaks English paragraphs with the Knuth–Plass algorithm, as TeX does: MarkTeXset measures each paragraph at the page's text width, chooses the line breaks that minimize the badness of the whole paragraph, hyphenating with TeX's US English patterns only when that helps, and then paginates the result. Line-final punctuation and hyphens hang slightly into the right margin, as with microtype. Inline math may break after a top-level relation or binary operator, as in TeX, so a long formula no longer forces the rest of its line to spread out. Japanese text, table cells, and footnotes keep the browser's line breaking, which follows kinsoku rules. To use the browser's line breaking everywhere, set:
+PDF output breaks English paragraphs with the Knuth–Plass algorithm, as TeX does: MarkTeXset measures each paragraph at the page's text width, chooses the line breaks that minimize the badness of the whole paragraph, hyphenating with TeX's US English patterns only when that helps, and then paginates the result. Line-final punctuation and hyphens hang slightly into the right margin, and each line's text may be set up to 2% wider or narrower together with its spaces, as with microtype under LuaLaTeX, so lines need hyphens about as rarely as in LaTeX. Inline math may break after a top-level relation or binary operator, as in TeX, so a long formula no longer forces the rest of its line to spread out. Japanese text, table cells, and footnotes keep the browser's line breaking, which follows kinsoku rules. To use the browser's line breaking everywhere, set:
 
 ```yaml
 ---
@@ -234,4 +234,4 @@ npm run check   # build, then test
 
 MarkTeXset is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). PDF pagination uses [Vivliostyle](https://vivliostyle.org/), which is also licensed under AGPL-3.0. The license covers MarkTeXset itself; documents and PDFs you produce with it are not affected.
 
-The default fonts are downloaded separately by `marktexset fonts install`: Latin Modern under the GUST Font License and Harano Aji under the SIL Open Font License 1.1.
+The default fonts are downloaded separately by `marktexset fonts install`: Latin Modern under the GUST Font License and Harano Aji under the SIL Open Font License 1.1. PDF output also embeds MathJax's TeX fonts, which come with the `mathjax-full` package under the Apache License 2.0.
