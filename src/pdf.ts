@@ -6,7 +6,7 @@ import { PDFDocument } from "pdf-lib";
 import { chromium, type Page } from "playwright";
 import type { CompileResult } from "./compiler.js";
 import { mathFont, mathPathsToText } from "./mathfont.js";
-import { HEADING_SANS_STACK, JAPANESE_SCALE, SERIF_STACK, ensureTrueTypeFonts, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
+import { HEADING_SANS_STACK, JAPANESE_SCALE, SERIF_STACK, SLANTED_STACK, headingSansStack, serifStack, ensureTrueTypeFonts, fontFaceCss, missingFontFiles, resolveFontRequest } from "./fonts.js";
 import { breakParagraphs } from "./linebreak.js";
 
 const require = createRequire(import.meta.url);
@@ -113,6 +113,10 @@ function contentWidth(config: Record<string, any>): string {
   return "calc(" + PAGE_WIDTHS[pageSize(config.layout?.size)] + " - " + left + " - " + right + ")";
 }
 
+// How far below a text line's baseline a heading's baseline sits in its line box, in ems of the heading, by its size in
+// pt: Latin Modern 12 bold at 14.4pt on 18pt and at 12pt on 14.4pt, and 10 bold at 10pt on 12.5pt, against 10pt on 12pt.
+const HEADING_RISE: Record<number, number> = { 14.4: 0.3417, 12: 0.175, 10: 0.026 };
+
 // Latin Modern's ascent and descent (hhea), which set the strut of a CSS line box, and its ascender and descender.
 const LM_ASCENT = 1.127, LM_DESCENT = 0.29, LM_ASCENDER = 0.694, LM_DESCENDER = 0.194;
 
@@ -135,6 +139,27 @@ function settleInlineMath(html: string, lineHeight: number): string {
     const top = height <= maxHeight ? Math.min(0, strutTop - height) : strutTop - maxHeight;
     const room = depth <= maxDepth ? Math.min(depth, strutBottom) : strutBottom + depth - maxDepth;
     return start + "vertical-align: " + (-room).toFixed(4) + "em; margin-top: " + top.toFixed(4) + "em; margin-bottom: " + (room - depth).toFixed(4) + "em;" + rest;
+  });
+}
+
+/**
+ * Sets LaTeX's quad after a heading number: the space there, kept for the outline, is a Latin Modern word space (a
+ * third of an em) and the number's margin is the rest. Each heading that marks the running head gets a hidden copy of
+ * the mark, which the head takes with content(text): the number and the title a quad apart in article (\sectionmark),
+ * "1." and a space between them in report and book (\chaptermark: "CHAPTER 1.  TITLE"), and 1zw apart in jsclasses.
+ */
+function runningMarks(html: string, config: Record<string, any>): string {
+  const documentClass = config.layout?.class;
+  const japanese = /^ja/i.test(String(config.meta?.language));
+  const separator = japanese ? "\u3000" : documentClass === "report" || documentClass === "book" ? ".\u00a0\u00a0" : "\u00a0\u00a0\u00a0";
+  const marked = documentClass === "book" ? /^h[12]$/ : /^h1$/;
+  const text = (markup: string) => markup.replace(/<[^>]*>/g, "");
+  return html.replace(/<(h[1-6])\b([^>]*)>([\s\S]*?)<\/\1>/g, (_match, tag: string, attributes: string, inner: string) => {
+    const numbered = inner.match(/^<span class="heading-number">([\s\S]*?)<\/span> ([\s\S]*)$/);
+    const body = numbered ? "<span class=\"heading-number\">" + numbered[1] + "</span><span class=\"mathmd-heading-space\"> </span>" + numbered[2] : inner;
+    if (!marked.test(tag)) return "<" + tag + attributes + ">" + body + "</" + tag + ">";
+    const mark = numbered ? text(numbered[1]) + separator + text(numbered[2]) : text(inner);
+    return "<" + tag + attributes + "><span class=\"mathmd-mark mathmd-mark-" + tag + "\" aria-hidden=\"true\">" + mark + "</span>" + body + "</" + tag + ">";
   });
 }
 
@@ -197,14 +222,28 @@ function chapterCss(config: Record<string, any>, pageNumber: string, heads: Runn
   const mirrored = book && margins && typeof margins === "object" ? `@page :left { margin-left: ${cssLength(margins.right ?? "25mm")}; margin-right: ${cssLength(margins.left ?? "25mm")}; }` : "";
   const front = config.layout?.page?.number?.visible === false ? "none" : pageContent(config, "lower-roman") || "none";
   return `
-h1.chapter { break-before: ${opening}; font-size: 2.488em; line-height: 1.2; margin: 50pt 0 40pt; }
-h1.chapter .heading-number { display: block; font-size: 0.833em; margin-bottom: 20pt; }
+/* \\@makechapterhead: "Chapter 1" in \\huge 75pt below where a page's first line sits, the title in \\Huge 50pt below it,
+   and the text 52pt below the title; jsclasses set them 60pt, 49pt, and 64pt apart. */
+h1.chapter { break-before: ${opening}; font-size: 2.488em; line-height: 1.2; margin: 63.78pt 0 37.34pt; }
+h1.chapter .heading-number { display: block; font-size: 0.833em; margin-bottom: 20.69pt; }
+:lang(ja) h1.chapter { margin: 50.72pt 0 47.32pt; } :lang(ja) h1.chapter .heading-number { margin-bottom: 19.79pt; }
+h3 { font-family: ${serifStack(12)}; } :lang(ja) h3 { font-family: ${headingSansStack(12)}; }
+:lang(ja) h1.chapter, :lang(ja) .toc-title { font-family: ${headingSansStack(24.88)}; }
 /* Below a chapter, \\section is \\Large and \\subsection \\large. */
-h2 { font-size: 1.44em; line-height: 1.25; margin: 1.136em 0 0.6em; } h3 { font-size: 1.2em; line-height: 1.2; margin: 1.146em 0 0.485em; } h4, h5, h6 { font-size: 1em; margin: 1.4em 0 0.6em; }
-:lang(ja) h2 { margin: 1.275em 0 0.6em; } :lang(ja) h3 { margin: 1.43em 0 0.786em; } :lang(ja) :is(h4, h5, h6) { margin: 1.79em 0 0.163em; }
-${book ? "h1 { string-set: mathmd-chapter content(text), mathmd-section \"\"; } h2 { string-set: mathmd-section content(text); }" : ""}
+h2 { font-size: 1.44em; line-height: 1.25; margin: ${1.136 + HEADING_RISE[14.4]}em 0 0.6em; } h2::before { margin-bottom: -${HEADING_RISE[14.4]}em; }
+h3 { font-size: 1.2em; line-height: 1.2; margin: ${1.146 + HEADING_RISE[12]}em 0 0.485em; } h3::before { margin-bottom: -${HEADING_RISE[12]}em; }
+h4, h5, h6 { font-size: 1em; margin: ${1.4 + HEADING_RISE[10]}em 0 0.6em; } :is(h4, h5, h6)::before { margin-bottom: -${HEADING_RISE[10]}em; }
+h1.chapter::before, .toc-title::before { content: none; }
+:lang(ja) h2 { margin: 0 0 0.6em; padding-top: 1.275em; } :lang(ja) h3 { margin: 0 0 0.786em; padding-top: 1.43em; } :lang(ja) :is(h4, h5, h6) { margin: 0 0 0.163em; padding-top: 1.79em; }
+${book ? ".mathmd-mark-h1 { string-set: mathmd-chapter content(text), mathmd-section \"\"; } .mathmd-mark-h2 { string-set: mathmd-section content(text); }" : ""}
 .table-of-contents { break-before: ${opening}; }
-.toc-title { font-size: 2.488em; line-height: 1.2; margin: 50pt 0 40pt; }
+/* \\@makeschapterhead, placed as LaTeX places the title of the contents. */
+.toc-title { font-size: 2.488em; line-height: 1.2; margin: 64.47pt 0 47.29pt; }
+:lang(ja) .toc-title { padding-top: 52.69pt; margin: 0 0 46.44pt; }
+/* ltjsreport's contents, measured: titles of chapters and sections 4.683zw from the margin, subsections 3.5zw further. */
+:lang(ja) .toc-list .toc-level-1 .heading-number { min-width: ${4.683 * JAPANESE_SCALE}em; }
+:lang(ja) .toc-list .toc-level-2 .heading-number { min-width: ${3.683 * JAPANESE_SCALE}em; }
+:lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) { padding-left: ${4.683 * JAPANESE_SCALE}em; } :lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) .heading-number { min-width: ${3.5 * JAPANESE_SCALE}em; }
 .document-title { page: mathmd-title; break-after: ${opening}; padding-top: 60pt; }
 .document-title + *, .mathmd-mainmatter { counter-reset: page 1; }
 .mathmd-frontmatter { page: mathmd-front; }
@@ -226,7 +265,7 @@ function runningHeads(config: Record<string, any>): RunningHeads {
   const japanese = /^ja/i.test(String(config.meta?.language));
   const rule = japanese ? `border-bottom: ${texPt(0.4)} solid;` : "";
   return {
-    mark: `font-size: ${texPt(10)}; font-weight: normal; ${japanese ? "font-style: normal; text-transform: none;" : "font-style: italic; text-transform: uppercase;"} ${rule}`,
+    mark: `font-size: ${texPt(10)}; font-weight: normal; ${japanese ? "font-style: normal; text-transform: none;" : `font-family: ${SLANTED_STACK}; font-style: normal; text-transform: uppercase;`} ${rule}`,
     number: `font-size: ${texPt(10)}; font-weight: ${japanese ? "bold" : "normal"}; font-style: normal; text-transform: none; ${rule}`,
   };
 }
@@ -237,6 +276,7 @@ export function pdfHtml(html: string, config: Record<string, any>, baseDirectory
   const layout = latexLayout(config);
   const pageNumber = config.layout?.page?.number?.visible === false ? "none" : pageContent(config) || "none";
   const heads = runningHeads(config);
+  const japanese = /^ja/i.test(String(config.meta?.language));
   const css = `<style data-mathmd-style-origin="pdf">
 ${fontFaceCss((file) => ORIGIN + "/fonts/" + encodeURIComponent(file))}
 @page { size: ${size}; margin: ${margins}; font-family: ${SERIF_STACK}; @top-left { content: string(mathmd-section, first); ${heads.mark} } @top-right { content: ${pageNumber}; ${heads.number} } @bottom-center { content: ${pageNumber}; font-size: ${texPt(10)}; } }
@@ -253,12 +293,29 @@ p + p, :is(body, .mathmd-matter) > p { text-indent: 1.5em; }
 li > p, td > p, th > p, .figure p { text-indent: 0; }
 /* \\section, \\subsection, and \\subsubsection: \\Large, \\large, and \\normalsize bold with LaTeX's space around them. */
 h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.6em; }
-h1 { font-size: 1.44em; margin: 1.136em 0 0.6em; } h2 { font-size: 1.2em; line-height: 1.2; margin: 1.146em 0 0.485em; } h3, h4, h5, h6 { font-size: 1em; }
-/* The number is followed by a quad, as with \\@seccntformat; the space after it is a third of one. */
+h1 { font-size: 1.44em; margin: ${1.136 + HEADING_RISE[14.4]}em 0 0.6em; } h2 { font-size: 1.2em; line-height: 1.2; margin: ${1.146 + HEADING_RISE[12]}em 0 0.485em; } h3, h4, h5, h6 { font-size: 1em; margin-top: ${1.4 + HEADING_RISE[10]}em; }
+/* LaTeX drops the space above a heading at the top of a page and puts the heading's baseline where a first line's
+   would be. Vivliostyle drops the margin at the page breaks it chooses, and the margin is dropped here at the others;
+   a heading's text is raised by the distance between its baseline and a text line's, and its margin grows by as
+   much. The empty block before the text keeps the negative margin from collapsing into the heading's. jsclasses keep
+   the space, so Japanese headings take it as padding. */
+h1::before, h2::before, h3::before, h4::before, h5::before, h6::before, .toc-title::before { content: ""; display: block; height: 0.01px; }
+h1::before, .toc-title::before { margin-bottom: -${HEADING_RISE[14.4]}em; } h2::before { margin-bottom: -${HEADING_RISE[12]}em; } :is(h3, h4, h5, h6)::before { margin-bottom: -${HEADING_RISE[10]}em; }
+:is(body, .mathmd-matter) > :first-child:not(.chapter, .table-of-contents), .mathmd-pagebreak + :not(.chapter, .table-of-contents),
+.mathmd-class-article > .table-of-contents:first-child > .toc-title, .mathmd-class-article .mathmd-pagebreak + .table-of-contents > .toc-title { margin-top: 0; }
+:lang(ja) :is(h1, h2, h3, h4, h5, h6, .toc-title)::before { content: none; }
+/* Latin Modern's optical sizes, as LaTeX picks them: the 12pt designs from 11pt up, the 17pt design for the title,
+   and the 8, 7, and 6pt designs for footnotes, footnote calls, and the marks in front of the notes. */
+h1, h2, .toc-title, .document-title .author, .document-title .date { font-family: ${serifStack(12)}; }
+.document-title-heading { font-family: ${serifStack(17.28)}; }
+/* The number is followed by a quad, as with \\@seccntformat. */
 .heading-number { margin-right: 0.667em; }
+.mathmd-mark { font-size: 0; }
+.mathmd-heading-space { font-family: ${SERIF_STACK}; font-weight: normal; font-style: normal; }
 /* jsclasses set headings in Gothic and sans serif at regular weight, on whole lines of the 16pt grid. */
 :lang(ja) :is(h1, h2, h3, h4, h5, h6) { font-family: ${HEADING_SANS_STACK}; font-weight: normal; }
-:lang(ja) h1 { margin: 1.275em 0 0.6em; } :lang(ja) h2 { margin: 1.43em 0 0.786em; } :lang(ja) :is(h3, h4, h5, h6) { margin: 1.79em 0 0.163em; }
+:lang(ja) :is(h1, h2), :lang(ja) .toc-title { font-family: ${headingSansStack(12)}; }
+:lang(ja) h1 { margin: 0 0 0.6em; padding-top: 1.275em; } :lang(ja) h2 { margin: 0 0 0.786em; padding-top: 1.43em; } :lang(ja) :is(h3, h4, h5, h6) { margin: 0 0 0.163em; padding-top: 1.79em; }
 .math-block, .callout, .figure, .code-block, table, .tikzcd, ul, ol, dl { margin-top: 0.7em; margin-bottom: 0.7em; }
 .mathml, mjx-assistive-mml { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .math-svg { display: inline; }
@@ -274,7 +331,7 @@ pre, .code-block pre, .code-content { max-width: 100%; overflow: visible; orphan
 .code-header, .callout-title { break-after: avoid; }
 pre, .code-block pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-h1 { string-set: mathmd-section content(text); }
+.mathmd-mark-h1 { string-set: mathmd-section content(text); }
 .mathmd-table { margin-left: auto; margin-right: auto; }
 /* booktabs rules, as in Pandoc's LaTeX tables; :where() keeps them below any user table style. */
 :where(.mathmd-table) { border-collapse: collapse; border-top: 0.08em solid; border-bottom: 0.08em solid; }
@@ -300,18 +357,19 @@ body:lang(ja):not(.mathmd-class-report):not(.mathmd-class-book) .document-title 
 .toc-list { list-style: none; padding-left: 0; }
 .toc-list li { display: flex; align-items: baseline; margin: 0; }
 /* \\tableofcontents: the title as \\section*, entries indented 0, 1.5em, and 3.8em with numbers in boxes 1.5em, 2.3em,
-   and 3.2em wide, the top level in bold after 1em of space. jsclasses align every title after the widest number. */
-.toc-title { font-size: 1.44em; line-height: 1.25; margin: 1.81em 0 0.62em; }
+   and 3.2em wide, the top level in bold after 1em of space. ltjsarticle indents entries 0, 1zw, and 2zw with numbers
+   in boxes 4zw, 3zw, and 4zw wide, so section and subsection titles align. */
+.toc-title { font-size: 1.44em; line-height: 1.25; margin: ${1.81 + HEADING_RISE[14.4]}em 0 0.62em; }
 .toc-list > li:first-child { margin-top: 0; }
-:lang(ja) .toc-title { margin: 3.07em 0 1.136em; }
+:lang(ja) .toc-title { margin: 0 0 0.6em; padding-top: 1.275em; }
 .toc-list { margin: 0; }
 .toc-list .heading-number { display: inline-block; margin-right: 0; }
 .toc-list .toc-level-1 .heading-number { min-width: 1.5em; } .toc-list .toc-level-2 .heading-number { min-width: 2.3em; } .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) .heading-number { min-width: 3.2em; }
 .toc-list .toc-level-2 { padding-left: 1.5em; } .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) { padding-left: 3.8em; }
 :lang(ja) .toc-list .toc-level-1 { font-family: ${HEADING_SANS_STACK}; font-weight: normal; }
-:lang(ja) .toc-list .toc-level-1 .heading-number { min-width: ${3.8 * JAPANESE_SCALE}em; }
-:lang(ja) .toc-list .toc-level-2 { padding-left: ${JAPANESE_SCALE}em; } :lang(ja) .toc-list .toc-level-2 .heading-number { min-width: ${2.8 * JAPANESE_SCALE}em; }
-:lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) { padding-left: ${2 * JAPANESE_SCALE}em; } :lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) .heading-number { min-width: ${3.8 * JAPANESE_SCALE}em; }
+:lang(ja) .toc-list .toc-level-1 .heading-number { min-width: ${4 * JAPANESE_SCALE}em; }
+:lang(ja) .toc-list .toc-level-2 { padding-left: ${JAPANESE_SCALE}em; } :lang(ja) .toc-list .toc-level-2 .heading-number { min-width: ${3 * JAPANESE_SCALE}em; }
+:lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) { padding-left: ${2 * JAPANESE_SCALE}em; } :lang(ja) .toc-list :is(.toc-level-3, .toc-level-4, .toc-level-5, .toc-level-6) .heading-number { min-width: ${4 * JAPANESE_SCALE}em; }
 .toc-list a { color: inherit; text-decoration: none; display: flex; flex: 1; align-items: baseline; min-width: 0; }
 .toc-list a::after { content: target-counter(attr(href url), page, ${COUNTER_STYLES[pageNumberStyle(config)] ?? "decimal"}); flex: none; padding-left: 0.5em; }
 /* \\@dottedtocline: periods with 4.5mu on each side, aligned from the right. */
@@ -321,13 +379,13 @@ body:lang(ja):not(.mathmd-class-report):not(.mathmd-class-book) .document-title 
 .toc-list .toc-level-1 > a::before { visibility: hidden; }
 .mathmd-pagebreak { break-before: page; height: 0; }
 /* \\footnotesize: 8pt on 9.5pt. Lengths are absolute because Vivliostyle resolves em in the footnote area against the root. */
-.mathmd-footnote { float: footnote; font-size: ${texPt(8)}; line-height: ${texPt(9.5)}; text-align: justify; text-indent: 0; }
+.mathmd-footnote { float: footnote; font-family: ${serifStack(8)}; font-size: ${texPt(8)}; line-height: ${texPt(9.5)}; text-align: justify; text-indent: 0; }
 .mathmd-footnote-paragraph + .mathmd-footnote-paragraph { display: block; }
 .mathmd-line .mathmd-footnote { white-space: normal; text-align-last: auto; text-indent: 0; word-spacing: normal; }
-.mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-size: 0.7em; vertical-align: super; line-height: 0; }
+.mathmd-footnote::footnote-call, .mathmd-footnote-repeat { font-family: ${serifStack(7)}; font-size: 0.7em; vertical-align: super; line-height: 0; }
 /* \\@makefntext: the superscript mark ends a 1.8em box before the note. jsclasses indent the note by 3zw,
    hang the mark "*1" in front of it 0.3zw away, and mark the call "*1" too. */
-.mathmd-footnote::footnote-marker { content: counter(footnote); display: inline-block; font-size: 0.75em; width: 2.4em; text-align: right; vertical-align: super; line-height: 0; }
+.mathmd-footnote::footnote-marker { content: counter(footnote); display: inline-block; font-family: ${serifStack(6)}; font-size: 0.75em; width: 2.4em; text-align: right; vertical-align: super; line-height: 0; }
 :lang(ja) .mathmd-footnote { padding-left: ${3 * JAPANESE_SCALE}em; text-indent: -${3 * JAPANESE_SCALE}em; }
 :lang(ja) .mathmd-footnote::footnote-marker { content: "*" counter(footnote); width: ${4 * JAPANESE_SCALE}em; padding-right: ${0.4 * JAPANESE_SCALE}em; box-sizing: border-box; }
 :lang(ja) .mathmd-footnote::footnote-call { content: "*" counter(footnote); }
@@ -338,8 +396,8 @@ ${chapterCss(config, pageNumber, heads)}
   const titled = html.replace(/<h1 class="document-title-heading">([\s\S]*?)<\/h1>/, "<div class=\"document-title-heading\">$1</div>");
   // A captioned table floats like LaTeX's table environment, with its caption above it across the measure.
   const captioned = titled.replace(/(<table\b[^>]*>)<caption class="table-caption">([\s\S]*?)<\/caption>([\s\S]*?<\/table>)/g, "<div class=\"mathmd-table-float\"><div class=\"table-caption\">$2</div>$1$3</div>");
-  const prepared = wrapMatter(dropBreaksBeforeChapters(bindPageStyleMarkers(inlineFootnotes(captioned)), config)).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
-  const math = mathPathsToText(settleInlineMath(prepared, /^ja/i.test(String(config.meta?.language)) ? 1.6 : 1.2));
+  const prepared = wrapMatter(dropBreaksBeforeChapters(bindPageStyleMarkers(inlineFootnotes(runningMarks(captioned, config))), config)).replace(/(<ul class="toc-list">[\s\S]*?<\/ul>)/, (list) => list.replace(/<a href="#([^"]+)"/g, "<a href=\"#$1\" data-mathmd-toc-target=\"$1\""));
+  const math = mathPathsToText(settleInlineMath(prepared, japanese ? 1.6 : 1.2));
   const mathFaces = [...math.families].sort().map((family) => "@font-face { font-family: \"" + family + "\"; src: url(\"" + ORIGIN + "/mathfonts/" + family + ".ttf\") format(\"truetype\"); font-display: block; } .mathmd-glyph-" + family + " { font-family: \"" + family + "\"; }").join("\n");
   return embedLocalImages(math.html.replace("</head>", css.replace("</style>", mathFaces + "\n</style>") + "</head>"), baseDirectory);
 }

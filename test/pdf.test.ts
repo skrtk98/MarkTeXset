@@ -59,7 +59,7 @@ test("applies page styles from the page that follows a style marker", async () =
   assert.equal(result.diagnostics.hasErrors, false);
   await renderPdf(result, output, path.join(directory, "document.md"));
   const [first, second, third] = [1, 2, 3].map((page) => pageText(output, page).trim().split("\n").map((line) => line.trim()).filter(Boolean));
-  assert.match(first[0], /^1 ALPHA\s+1$/, "headings style sets the section and the page number in the head, as LaTeX's does");
+  assert.match(first[0], /^1\s{2,}ALPHA\s+1$/, "headings style sets the section a quad after its number and the page number in the head, as LaTeX's does");
   assert.ok(!first.slice(1).includes("1"), "headings style has no page number at the bottom");
   assert.ok(!second.includes("2"), "empty style hides the page number");
   assert.deepEqual(second.filter((line) => /Beta/i.test(line)).map((line) => line.replace(/\s+/g, " ")), ["2 Beta"], "empty style has no running head");
@@ -85,9 +85,9 @@ test("a book opens chapters on right-hand pages, numbers front matter in roman, 
   assert.deepEqual(pages[3], [], "a blank left-hand page has no running head or number");
   assert.deepEqual([pages[4][0], pages[4].at(-1)], ["Preface", "iii"]);
   assert.deepEqual([pages[6][0], pages[6][1], pages[6].at(-1)], ["Chapter 1", "Alpha", "1"], "a chapter opens on a plain right-hand page");
-  assert.match(pages[7][0], /^2\s+CHAPTER 1 ALPHA$/, "a left-hand page has the page number and the chapter in its head");
+  assert.match(pages[7][0], /^2\s+CHAPTER 1\.\s+ALPHA$/, "a left-hand page has the page number and the chapter in its head");
   assert.ok(!pages[7].slice(1).includes("2"), "running-head pages have no page number at the bottom");
-  assert.match(pages[8][0], /^1\.1 ALPHA SECTION\s+3$/, "a right-hand page has the section and the page number in its head");
+  assert.match(pages[8][0], /^1\.1\.\s+ALPHA SECTION\s+3$/, "a right-hand page has the section and the page number in its head");
   assert.deepEqual([pages[10][0], pages[14][0], pages[14].at(-1)], ["Chapter 2", "Index", "9"]);
 });
 
