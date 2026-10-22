@@ -140,7 +140,7 @@ test("splits long paragraphs across pages instead of pushing them to the next pa
   assert.match(css, /:lang\(ja\)\{line-break:strict/);
 });
 
-test("breaks English paragraphs with flush right edges, protruding punctuation, and every word kept", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
+test("breaks English paragraphs with flush right edges, protruding punctuation, font expansion, and every word kept", { skip: missingFontFiles().length ? "run 'marktexset fonts install' first" : false }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-linebreak-"));
   const output = path.join(directory, "document.pdf");
   const paragraph = "Linear algebra studies vector spaces together with the maps that preserve their structure, and the kernel $\\ker T$ of a map consists of the vectors that $T$ sends to zero. *Characteristically*, the eigenvalues of a self-adjoint operator are real, which is the starting point of the spectral theorem and of the decomposition of a symmetric matrix.[^n] Uncharacteristically long words such as incomprehensibilities test hyphenation.";
@@ -159,6 +159,10 @@ test("breaks English paragraphs with flush right edges, protruding punctuation, 
   const protruding = paragraphLines.filter((line) => hanging(line) && line.xMax > right + 0.5);
   assert.ok(protruding.length >= 1, "line-final punctuation and hyphens protrude into the margin: " + JSON.stringify(paragraphLines.map((line) => [line.xMax, line.text.slice(-12)])));
   assert.ok(protruding.every((line) => line.xMax < right + 4), "protrusion stays within part of a character");
+  // microtype's font expansion sets some lines' text up to 2% wider or narrower.
+  const the = [...xml.matchAll(/<word xMin="([\d.]+)" yMin="[\d.]+" xMax="([\d.]+)" yMax="([\d.]+)">the<\/word>/g)].filter((match) => Number(match[3]) < 700).map((match) => Number(match[2]) - Number(match[1]));
+  assert.ok(the.length >= 4);
+  assert.ok(Math.max(...the) / Math.min(...the) > 1.002 && Math.max(...the) / Math.min(...the) < 1.045, "the word 'the' is set at different widths: " + JSON.stringify(the));
   const words = (text: string) => text.replace(/[‐-]\n/g, "").replace(/\s+/g, " ");
   const text = words(execFileSync("pdftotext", [output, "-"], { encoding: "utf8" }));
   for (const word of ["Characteristically", "incomprehensibilities", "decomposition", "hyphenation."]) assert.ok(text.includes(word), word);

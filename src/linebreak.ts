@@ -38,6 +38,9 @@ const BROWSER_SCRIPT = String.raw`
   var CJK = /[　-ヿ㐀-鿿＀-￯]/;
   // Share of a line-final character's width that hangs into the right margin, after microtype's defaults.
   var PROTRUSION = { ".": 0.7, ",": 0.5, "-": 0.7, "‐": 0.7, "–": 0.3, "—": 0.2, ":": 0.5, ";": 0.5, "!": 0.2, "?": 0.2, "'": 0.7, "’": 0.7, "\"": 0.5, "”": 0.5, ")": 0.05 };
+  // microtype's font expansion, which LuaLaTeX applies by default: each line's text may be set up to 2% wider or
+  // narrower, sharing the line's glue ratio, so fewer lines need hyphens or loose spaces.
+  var EXPANSION = 0.02;
   var canvas = document.createElement("canvas").getContext("2d");
 
   function targets() {
@@ -146,14 +149,15 @@ const BROWSER_SCRIPT = String.raw`
         var previousWidth = 0;
         breaks.forEach(function (point) {
           var width = rangeWidth(node, start, start + point.offset);
-          items.push({ type: "box", width: width - previousWidth });
+          items.push({ type: "box", width: width - previousWidth, expand: (width - previousWidth) * EXPANSION });
           var protrude = (point.explicit ? PROTRUSION[chunk[point.offset - 1]] || 0 : PROTRUSION["-"]) * canvas.measureText(point.explicit ? chunk[point.offset - 1] : "-").width;
           items.push({ type: "penalty", width: point.explicit ? 0 : hyphenWidth, penalty: point.explicit ? EX_HYPHEN_PENALTY : HYPHEN_PENALTY, flagged: true, hyphen: !point.explicit, node: node, offset: start + point.offset, protrude: protrude });
           previousWidth = width;
         });
         var lastChar = chunk[chunk.length - 1];
         var protrude = PROTRUSION[lastChar] ? PROTRUSION[lastChar] * canvas.measureText(lastChar).width : 0;
-        items.push({ type: "box", width: rangeWidth(node, start, start + chunk.length) - previousWidth, protrude: protrude });
+        var rest = rangeWidth(node, start, start + chunk.length) - previousWidth;
+        items.push({ type: "box", width: rest, expand: rest * EXPANSION, protrude: protrude });
       }
     });
     while (items.length && items[items.length - 1].type === "glue") items.pop();
@@ -216,7 +220,7 @@ const BROWSER_SCRIPT = String.raw`
         });
         if (!active.length) return null;
       }
-      if (item.type === "box") sum.width += item.width;
+      if (item.type === "box") { sum.width += item.width; sum.stretch += item.expand || 0; sum.shrink += item.expand || 0; }
       else if (item.type === "glue") { sum.width += item.width; sum.stretch += item.stretch; sum.shrink += item.shrink; }
     }
     var best = null;
@@ -265,23 +269,27 @@ const BROWSER_SCRIPT = String.raw`
       fragments.unshift(range.extractContents());
     }
     p.textContent = "";
-    var glueShrink = {};
     fragments.forEach(function (fragment, index) {
       var line = document.createElement("span");
       line.className = "mathmd-line";
       var ratio = breaks[index].ratio;
-      var css = "display:block;white-space:nowrap;text-align:justify;text-align-last:" + (index === fragments.length - 1 ? "start" : "justify") + ";text-indent:" + (index === 0 ? indent : "0") + ";";
+      // The text is expanded by scaling the line, justified at its width before scaling; math keeps its shape.
+      var scale = 1 + Math.max(-1, Math.min(1, ratio)) * EXPANSION;
+      var css = "display:block;white-space:nowrap;text-align:justify;text-align-last:" + (index === fragments.length - 1 ? "start" : "justify") + ";text-indent:" + (index === 0 ? "calc(" + indent + " / " + scale.toFixed(4) + ")" : "0") + ";";
+      if (scale !== 1) css += "transform:scaleX(" + scale.toFixed(4) + ");transform-origin:0 0;";
       // As in TeX, the last line may shrink too when it was chosen slightly over the measure.
       if (ratio < 0) {
         canvas.font = fontOf(p);
         css += "word-spacing:" + (ratio * canvas.measureText(" ").width / 3).toFixed(3) + "px;";
       }
-      if (breaks[index].protrude > 0 && index < fragments.length - 1) css += "margin-right:-" + breaks[index].protrude.toFixed(3) + "px;";
+      var protrude = breaks[index].protrude > 0 && index < fragments.length - 1 ? breaks[index].protrude : 0;
+      if (scale !== 1 || protrude) css += "width:calc((100% + " + protrude.toFixed(3) + "px) / " + scale.toFixed(4) + ");";
       if (fragments.length >= 4 && index === 0) css += "break-after:avoid;";
       if (fragments.length >= 4 && index === fragments.length - 1) css += "break-before:avoid;";
       if (fragments.length < 4) css += "break-inside:avoid;";
       line.setAttribute("style", css);
       line.appendChild(fragment);
+      if (scale !== 1) Array.prototype.forEach.call(line.querySelectorAll("svg, img"), function (element) { element.style.transform = "scaleX(" + (1 / scale).toFixed(4) + ")"; });
       p.appendChild(line);
     });
     if (fragments.length < 4) p.style.breakInside = "avoid";
