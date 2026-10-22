@@ -407,6 +407,7 @@ table, .callout, .math-block, img, .figure, .tikzcd { break-inside: avoid; max-w
 /* \\textfloatsep separates a top float from the text. */
 .figure, .mathmd-table-float { float: top; float-reference: page; margin: 0 auto ${texPt(20)}; }
 .mathmd-table-float { width: 100%; break-inside: avoid; }
+.mathmd-float-bottom { float: bottom; margin: ${texPt(20)} auto 0; }
 /* Code may break across pages like a verbatim block, keeping at least three lines on each side. */
 .code-block, .callout { break-inside: auto; }
 pre, .code-block pre, .code-content { max-width: 100%; overflow: visible; orphans: 3; widows: 3; }
@@ -528,14 +529,72 @@ async function paginate(page: Page, result: CompileResult, sourceFile: string): 
     await breakParagraphs(page);
     documentHtml = "<!doctype html>\n" + await page.evaluate(() => { document.getElementById("mathmd-measure")?.remove(); return document.documentElement.outerHTML; });
   }
-  await page.goto(ORIGIN + "/viewer.html");
-  await page.waitForFunction(() => (window as any).__mathmd.done || (window as any).__mathmd.error, undefined, { timeout: 120_000 });
-  const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
-  if (error) throw new Error("Vivliostyle pagination failed: " + error);
-  await page.evaluate(() => document.fonts.ready);
+  const layOut = async () => {
+    await page.goto(ORIGIN + "/viewer.html");
+    await page.waitForFunction(() => (window as any).__mathmd.done || (window as any).__mathmd.error, undefined, { timeout: 120_000 });
+    const error = await page.evaluate(() => (window as any).__mathmd.error as string | null);
+    if (error) throw new Error("Vivliostyle pagination failed: " + error);
+    await page.evaluate(() => document.fonts.ready);
+  };
   const documentClass = result.config.layout?.class;
+  const chapters = documentClass === "report" || documentClass === "book";
+  const floats = chapters && /class="(?:figure|mathmd-table-float)"/.test(documentHtml);
+  if (floats) documentHtml = await editDocument(page, () => {
+    let float = 0, block = 0;
+    for (const element of document.querySelectorAll<HTMLElement>(".figure, .mathmd-table-float")) element.setAttribute("data-mathmd-float", String(++float));
+    for (const element of document.querySelectorAll<HTMLElement>("body > *, .mathmd-matter > *")) element.setAttribute("data-mathmd-block", String(++block));
+  });
+  await layOut();
+  if (floats) {
+    const moves = await chapterPageFloats(page);
+    if (moves.length) {
+      documentHtml = await editDocument(page, (moves) => {
+        for (const move of moves) {
+          const float = document.querySelector<HTMLElement>("[data-mathmd-float=\"" + move.float + "\"]");
+          const before = move.before ? document.querySelector<HTMLElement>("[data-mathmd-block=\"" + move.before + "\"]") : null;
+          if (move.bottom) float?.classList.add("mathmd-float-bottom");
+          else if (float && before) before.before(float);
+        }
+      }, moves);
+      await layOut();
+    }
+  }
   await applyPageStyles(page, String(result.config.layout?.page?.style ?? "plain"), documentClass === "report" || documentClass === "book", documentClass === "book" && /^ja/i.test(String(result.config.meta?.language)), /^ja/i.test(String(result.config.meta?.language)));
-  if (result.config.layout?.class === "report" || result.config.layout?.class === "book") await numberTocEntries(page, pageNumberStyle(result.config));
+  if (chapters) await numberTocEntries(page, pageNumberStyle(result.config));
+}
+
+/** Loads the document to be paginated as it stands, changes it with the function, and returns it serialized. */
+async function editDocument(page: Page, edit: (argument: any) => void, argument?: unknown): Promise<string> {
+  await page.goto(ORIGIN + "/document.html");
+  await page.evaluate(edit, argument);
+  return "<!doctype html>\n" + await page.evaluate(() => document.documentElement.outerHTML);
+}
+
+/**
+ * LaTeX sets no float at the top of a page that opens a chapter (\chapter sets \@topnum to 0). Finds the floats
+ * placed there: each goes to the page bottom if it takes at most \bottomfraction (0.3) of the text block, and
+ * otherwise to the top of the next page, before the first block that starts there.
+ */
+async function chapterPageFloats(page: Page): Promise<Array<{ float: string; bottom: boolean; before?: string }>> {
+  return page.evaluate(() => {
+    const moves: Array<{ float: string; bottom: boolean; before?: string }> = [];
+    const seen = new Set<string>();
+    const containers = [...document.querySelectorAll<HTMLElement>("[data-vivliostyle-page-container]")];
+    containers.forEach((container, index) => {
+      const area = container.querySelector<HTMLElement>("[data-vivliostyle-page-area]");
+      for (const element of container.querySelectorAll<HTMLElement>("[data-mathmd-block]")) seen.add(element.getAttribute("data-mathmd-block")!);
+      if (!area || !area.querySelector("h1.chapter, .toc-title")) return;
+      // Vivliostyle sets page floats beside the page area, not in it.
+      for (const float of container.querySelectorAll<HTMLElement>("[data-mathmd-float]:not(.mathmd-float-bottom)")) {
+        if (float.getBoundingClientRect().top > area.querySelector<HTMLElement>("h1.chapter, .toc-title")!.getBoundingClientRect().top) continue;
+        const id = float.getAttribute("data-mathmd-float")!;
+        if (float.getBoundingClientRect().height <= 0.3 * area.getBoundingClientRect().height) { moves.push({ float: id, bottom: true }); continue; }
+        const next = [...(containers[index + 1]?.querySelectorAll<HTMLElement>("[data-mathmd-block]") ?? [])].find((element) => !seen.has(element.getAttribute("data-mathmd-block")!) && !element.hasAttribute("data-mathmd-float"));
+        moves.push({ float: id, bottom: false, before: next?.getAttribute("data-mathmd-block") ?? undefined });
+      }
+    });
+    return moves;
+  });
 }
 
 // Page styles follow LaTeX's \pagestyle: a marker switches the style from its page onward.

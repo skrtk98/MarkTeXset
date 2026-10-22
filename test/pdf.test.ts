@@ -221,3 +221,20 @@ test("puts LuaTeX-ja's xkanjiskip between Japanese and Latin text or inline math
   const english = compile("English $x$ and 日本語 text.\n");
   assert.doesNotMatch(pdfHtml(english.html, english.config, "."), /<span class="mathmd-xkanjiskip">/, "only Japanese documents get xkanjiskip");
 });
+
+test("sets no float at the top of a chapter's opening page: a small one goes to its bottom, a tall one to the next page", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "marktexset-chapter-floats-"));
+  const output = path.join(directory, "document.pdf");
+  const paragraph = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(4);
+  const table = (name: string, rows: number) => "| A | B |\n|---|---|\n" + "| x | y |\n".repeat(rows) + "\n: " + name + "\n\n";
+  const source = "---\nmathmd:\n  layout:\n    class: report\n---\n# Alpha\n\n" + paragraph + "\n\n" + table("Small table", 2) + Array(6).fill(paragraph).join("\n\n") + "\n\n# Beta\n\n" + paragraph + "\n\n" + table("Tall table", 30) + Array(8).fill(paragraph).join("\n\n") + "\n";
+  const result = compile(source);
+  await renderPdf(result, output, path.join(directory, "document.md"));
+  const pages = Array.from({ length: 4 }, (_, index) => pageText(output, index + 1).split("\n").map((line) => line.trim()).filter(Boolean));
+  assert.equal(pages[0][0], "Chapter 1");
+  const small = pages[0].findIndex((line) => line.startsWith("Table 1.1"));
+  assert.ok(small > pages[0].findIndex((line) => line.startsWith("Lorem")), "the small table sits below the text of the chapter's first page");
+  const beta = pages.findIndex((page) => page[0] === "Chapter 2");
+  assert.ok(!pages[beta].some((line) => line.startsWith("Table 2.1")), "the tall table leaves the chapter's first page");
+  assert.ok(pages[beta + 1][0].startsWith("Table 2.1"), "and heads the next page");
+});
